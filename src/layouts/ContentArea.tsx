@@ -100,6 +100,7 @@ export function ContentArea() {
           />
           <input
             ref={searchInputRef}
+            data-launcher-search
             type="text"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}

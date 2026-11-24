@@ -26,6 +26,19 @@ export function readShortcutKeysOrDefault(): string[] {
   return saved && isValidShortcut(saved) ? saved : [...DEFAULT_SHORTCUT_KEYS];
 }
 
+/**
+ * Phím tắt toàn cục có đang bật không — dùng chung cho MainWindow và SettingsModal.
+ * Cờ `null` (cấu hình cũ) nhưng đã có phím lưu → coi là bật, trừ khi người dùng đã chọn bỏ qua.
+ */
+export function isShortcutEnabled(): boolean {
+  const flag = localStorage.getItem('app_shortcut_enabled');
+  if (flag === 'true') return true;
+  if (flag === null) {
+    return readSavedShortcutKeys() !== null && localStorage.getItem('app_has_configured_shortcut') !== 'skipped';
+  }
+  return false;
+}
+
 /** Ghi tổ hợp phím vào cả key mới và key cũ. */
 export function persistShortcut(keys: string[]): void {
   const value = keys.join('+');

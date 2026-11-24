@@ -466,6 +466,7 @@ pub async fn restore_item(
     if !data.nhom_danh_sach.iter().any(|g| g.id == restored.nhom_id) {
         restored.nhom_id = "grp-default".to_string();
     }
+    data.ensure_default_group();
 
     let index = vi_tri.unwrap_or(data.muc.len()).min(data.muc.len());
     let ten = restored.ten.clone();
@@ -518,6 +519,23 @@ pub async fn show_in_folder(path: String) -> Result<(), String> {
         Err("Đường dẫn tệp không tồn tại trên hệ thống".into())
     }
 }
+/// Bỏ id trùng, giữ lần xuất hiện đầu tiên.
+fn dedupe_ids(ids: &[String]) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
+    ids.iter().filter(|id| seen.insert((*id).clone())).cloned().collect()
+}
+
+#[cfg(test)]
+mod reorder_tests {
+    use super::dedupe_ids;
+
+    #[test]
+    fn dedupe_keeps_first_occurrence() {
+        let ids: Vec<String> = ["a", "b", "a", "c", "b"].iter().map(|s| s.to_string()).collect();
+        assert_eq!(dedupe_ids(&ids), vec!["a", "b", "c"]);
+    }
+}
+
 /// Sắp xếp lại thứ tự hiển thị của các ứng dụng theo danh sách ID truyền vào.
 #[tauri::command]
 pub async fn reorder_items(danh_sach_id: Vec<String>, state: State<'_, Arc<AppState>>) -> Result<(), String> {
@@ -527,7 +545,7 @@ pub async fn reorder_items(danh_sach_id: Vec<String>, state: State<'_, Arc<AppSt
     let mut indices: Vec<usize> = Vec::new();
     let mut ordered_items: Vec<Item> = Vec::new();
 
-    for id in &danh_sach_id {
+    for id in &dedupe_ids(&danh_sach_id) {
         if let Some(pos) = data.muc.iter().position(|i| &i.id == id) {
             indices.push(pos);
             ordered_items.push(data.muc[pos].clone());

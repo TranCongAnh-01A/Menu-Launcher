@@ -56,6 +56,30 @@ impl Default for MenuData {
     }
 }
 
+impl MenuData {
+    /// Nếu có mục tham chiếu `grp-default` mà nhóm này không tồn tại thì tạo lại.
+    /// Trả về `true` nếu đã tạo.
+    pub fn ensure_default_group(&mut self) -> bool {
+        let referenced = self.muc.iter().any(|i| i.nhom_id == "grp-default");
+        let exists = self.nhom_danh_sach.iter().any(|g| g.id == "grp-default");
+        if !referenced || exists {
+            return false;
+        }
+        let thu_tu = self
+            .nhom_danh_sach
+            .iter()
+            .map(|g| g.thu_tu)
+            .max()
+            .map_or(0, |m| m + 1);
+        self.nhom_danh_sach.push(Group {
+            id: "grp-default".to_string(),
+            ten: "Khác".to_string(),
+            thu_tu,
+        });
+        true
+    }
+}
+
 /// Đường dẫn có phải link web hay không.
 pub fn is_web_link(duong_dan: &str) -> bool {
     let lower = duong_dan.to_lowercase();
@@ -132,6 +156,11 @@ impl AppState {
             }
         }
 
+        // Mục mồ côi đã được gán về grp-default: đảm bảo nhóm này tồn tại.
+        if data.ensure_default_group() {
+            cleaned = true;
+        }
+
         let state = Arc::new(Self {
             data: RwLock::new(data),
             data_path,
@@ -173,17 +202,38 @@ impl AppState {
 
         let temp_path = self.data_path.with_extension("json.tmp");
 
-        // 2. Ghi ra file tạm
-        fs::write(&temp_path, content)
-            .await
-            .map_err(|e| format!("Lỗi ghi file tạm: {}", e))?;
+        // 2. Ghi ra file tạm và flush xuống đĩa trước khi rename
+        {
+            use tokio::io::AsyncWriteExt;
+            let mut file = fs::File::create(&temp_path)
+                .await
+                .map_err(|e| format!("Lỗi tạo file tạm: {}", e))?;
+            file.write_all(content.as_bytes())
+                .await
+                .map_err(|e| format!("Lỗi ghi file tạm: {}", e))?;
+            file.flush()
+                .await
+                .map_err(|e| format!("Lỗi flush file tạm: {}", e))?;
+            file.sync_all()
+                .await
+                .map_err(|e| format!("Lỗi sync file tạm: {}", e))?;
+        }
 
-        // 3. Đổi tên file tạm đè lên file chính (Atomic trên NTFS)
-        fs::rename(&temp_path, &self.data_path)
-            .await
-            .map_err(|e| format!("Lỗi rename file atomic: {}", e))?;
-
-        Ok(())
+        // 3. Đổi tên file tạm đè lên file chính (Atomic trên NTFS). Thử lại vài
+        //    lần vì antivirus/indexer có thể giữ file trong chốc lát.
+        let mut last_err = String::new();
+        for attempt in 0..5 {
+            match fs::rename(&temp_path, &self.data_path).await {
+                Ok(()) => return Ok(()),
+                Err(e) => {
+                    last_err = e.to_string();
+                    if attempt < 4 {
+                        tokio::time::sleep(Duration::from_millis(50)).await;
+                    }
+                }
+            }
+        }
+        Err(format!("Lỗi rename file atomic: {}", last_err))
     }
 
     /// Xoá các file trong `icons_dir` mà không mục nào tham chiếu.
@@ -634,6 +684,21 @@ mod tests {
 
         assert_eq!(state.data.read().await.muc[0].icon_cache, "abc123.png");
         assert_eq!(state.icons_dir, dir.join("icons"));
+    }
+
+    #[test]
+    fn ensure_default_group_recreates_when_missing() {
+        let mut data = MenuData::default();
+        data.nhom_danh_sach.clear();
+        data.muc.push(sample_item(""));
+        assert!(data.ensure_default_group());
+        assert_eq!(data.nhom_danh_sach.len(), 1);
+        assert_eq!(data.nhom_danh_sach[0].id, "grp-default");
+        assert!(!data.ensure_default_group());
+
+        let mut empty = MenuData::default();
+        empty.nhom_danh_sach.clear();
+        assert!(!empty.ensure_default_group());
     }
 
     #[test]

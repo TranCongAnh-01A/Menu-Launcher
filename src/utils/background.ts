@@ -54,15 +54,32 @@ async function idbRun<T>(
 ): Promise<T> {
   const db = await openDb();
   return new Promise<T>((resolve, reject) => {
-    const tx = db.transaction(STORE, mode);
-    const req = fn(tx.objectStore(STORE));
+    let tx: IDBTransaction;
+    let req: IDBRequest<T>;
+    try {
+      tx = db.transaction(STORE, mode);
+      req = fn(tx.objectStore(STORE));
+    } catch (e) {
+      db.close();
+      reject(e);
+      return;
+    }
     tx.oncomplete = () => {
       db.close();
       resolve(req.result);
     };
     tx.onerror = () => {
       db.close();
-      reject(tx.error);
+      reject(tx.error ?? req.error ?? new Error('Lỗi IndexedDB'));
+    };
+    tx.onabort = () => {
+      db.close();
+      reject(tx.error ?? req.error ?? new Error('Không lưu được ảnh (giao dịch bị huỷ, có thể do ảnh quá lớn).'));
+    };
+    req.onerror = () => {
+      // Lỗi request sẽ kéo theo abort; reject sớm để chắc chắn caller không bị treo.
+      db.close();
+      reject(req.error ?? new Error('Lỗi IndexedDB'));
     };
   });
 }

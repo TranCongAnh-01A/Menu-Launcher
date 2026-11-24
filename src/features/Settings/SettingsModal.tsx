@@ -7,7 +7,7 @@ import { useTheme, Theme } from '../../context/ThemeContext';
 import {
   resolveMainKey,
   isValidShortcut,
-  readSavedShortcutKeys,
+  isShortcutEnabled,
   readShortcutKeysOrDefault,
   persistShortcut,
   SHORTCUT_HINT,
@@ -42,7 +42,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const { theme, setTheme } = useTheme();
 
   // Phím tắt toàn cầu — dùng 2 cờ riêng biệt
-  const [shortcutEnabled, setShortcutEnabled] = useState(() => localStorage.getItem('app_shortcut_enabled') === 'true');
+  const [shortcutEnabled, setShortcutEnabled] = useState(isShortcutEnabled);
   const [shortcutKeys, setShortcutKeys] = useState<string[]>(readShortcutKeysOrDefault);
   const [isRecording, setIsRecording] = useState(false);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
@@ -81,12 +81,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
       checkAutostartStatus().then(setAutostart);
       setAlwaysOnTopState(localStorage.getItem('app_always_on_top') === 'true');
 
-      const enabledStored = localStorage.getItem('app_shortcut_enabled');
-      const hasKeys = readSavedShortcutKeys() !== null;
-      const isShortcutActive =
-        enabledStored === 'true' ||
-        (enabledStored === null && hasKeys && localStorage.getItem('app_has_configured_shortcut') !== 'skipped');
-      setShortcutEnabled(isShortcutActive);
+      setShortcutEnabled(isShortcutEnabled());
 
       // Cấu hình cũ có thể chứa tổ hợp không còn hợp lệ — hiển thị tổ hợp mặc định
       // thay vì một phím tắt không bao giờ đăng ký được.
@@ -231,13 +226,14 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
   const handleToggleAlwaysOnTop = async () => {
     const newState = !alwaysOnTop;
-    setAlwaysOnTopState(newState);
-    localStorage.setItem('app_always_on_top', String(newState));
     try {
       await setAlwaysOnTop(newState);
+      setAlwaysOnTopState(newState);
+      localStorage.setItem('app_always_on_top', String(newState));
       showToast(newState ? 'Đã ghim cửa sổ trên cùng' : 'Đã bỏ ghim cửa sổ', 'success');
     } catch (e) {
       console.error(e);
+      showToast(`Không thể thay đổi ghim cửa sổ: ${String(e)}`, 'error');
     }
   };
 

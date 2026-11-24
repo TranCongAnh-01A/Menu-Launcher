@@ -483,6 +483,9 @@ export function MenuViewer({ items, groups, activeGroupId, viewMode = 'grid', se
       const currentIndex = navItems.findIndex((n) => n.item.id === selectedIdRef.current);
 
       if (e.key === 'Enter') {
+        // Ô tìm kiếm là luồng chính (gõ rồi Enter để mở); các điều khiển khác tự xử lý Enter.
+        const isSearch = !!target?.closest('[data-launcher-search]');
+        if (!isSearch && target?.closest('button, a, input, select, textarea, [role=button], [contenteditable=true]')) return;
         if (currentIndex >= 0) {
           e.preventDefault();
           handleLaunchItem(navItems[currentIndex].item);

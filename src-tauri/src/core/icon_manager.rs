@@ -78,7 +78,7 @@ pub fn get_icon_and_name(file_path: &str, app_data_dir: &Path) -> (Option<String
     let _com = ComGuard::new();
 
     let path = Path::new(file_path);
-    let name = path.file_stem().unwrap_or_default().to_string_lossy().to_string();
+    let name = display_name(file_path, path.is_dir());
     
     let mut extract_path = file_path.to_string();
     let mut extract_index = 0i32;
@@ -93,7 +93,7 @@ pub fn get_icon_and_name(file_path: &str, app_data_dir: &Path) -> (Option<String
         }
     } else if file_path.to_lowercase().ends_with(".url") {
         if let Ok(bytes) = std::fs::read(file_path) {
-            let content = String::from_utf8_lossy(&bytes);
+            let content = decode_text(&bytes);
             for line in content.lines() {
                 if line.starts_with("IconFile=") {
                     extract_path = line.trim_start_matches("IconFile=").trim().to_string();
@@ -128,6 +128,106 @@ pub fn get_icon_and_name(file_path: &str, app_data_dir: &Path) -> (Option<String
         (Some(icon_file_name), name)
     } else {
         (None, name)
+    }
+}
+
+/// Ghi PNG ra file tạm cùng thư mục rồi rename, để không bao giờ có file ghi dở
+/// ở đường dẫn đích.
+fn save_png_atomic(img: &RgbaImage, save_path: &Path) -> bool {
+    let tmp = save_path.with_extension("tmp.png");
+    if img.save(&tmp).is_err() {
+        let _ = std::fs::remove_file(&tmp);
+        return false;
+    }
+    if std::fs::rename(&tmp, save_path).is_err() {
+        let _ = std::fs::remove_file(&tmp);
+        return false;
+    }
+    true
+}
+
+/// Giải mã văn bản: thử UTF-8 trước, không hợp lệ thì dùng ANSI code page của hệ thống.
+fn decode_text(bytes: &[u8]) -> String {
+    if let Ok(s) = std::str::from_utf8(bytes) {
+        return s.trim_start_matches('\u{feff}').to_string();
+    }
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn MultiByteToWideChar(
+            code_page: u32,
+            flags: u32,
+            src: *const u8,
+            src_len: i32,
+            dst: *mut u16,
+            dst_len: i32,
+        ) -> i32;
+    }
+    const CP_ACP: u32 = 0;
+    if bytes.is_empty() || bytes.len() > i32::MAX as usize {
+        return String::from_utf8_lossy(bytes).to_string();
+    }
+    unsafe {
+        let n = MultiByteToWideChar(CP_ACP, 0, bytes.as_ptr(), bytes.len() as i32, std::ptr::null_mut(), 0);
+        if n <= 0 {
+            return String::from_utf8_lossy(bytes).to_string();
+        }
+        let mut buf = vec![0u16; n as usize];
+        let m = MultiByteToWideChar(CP_ACP, 0, bytes.as_ptr(), bytes.len() as i32, buf.as_mut_ptr(), n);
+        if m <= 0 {
+            return String::from_utf8_lossy(bytes).to_string();
+        }
+        String::from_utf16_lossy(&buf[..m as usize])
+    }
+}
+
+/// Tên hiển thị: thư mục giữ nguyên tên (có dấu chấm), ổ đĩa gốc -> "C:",
+/// URL -> host bỏ "www.", file -> bỏ phần mở rộng.
+fn display_name(file_path: &str, is_dir: bool) -> String {
+    let lower = file_path.to_lowercase();
+    if lower.starts_with("http://") || lower.starts_with("https://") {
+        let rest = &file_path[file_path.find("://").unwrap() + 3..];
+        let host = rest
+            .split(|c| c == '/' || c == '?' || c == '#')
+            .next()
+            .unwrap_or("");
+        let host = host.rsplit('@').next().unwrap_or(host);
+        let host = host.split(':').next().unwrap_or(host);
+        let host = host.strip_prefix("www.").unwrap_or(host);
+        if !host.is_empty() {
+            return host.to_string();
+        }
+        return file_path.to_string();
+    }
+    let path = Path::new(file_path);
+    if path.file_name().is_none() {
+        // Gốc ổ đĩa như "C:\" hoặc "C:"
+        let t = file_path.trim_end_matches(|c| c == '\\' || c == '/');
+        return if t.is_empty() { file_path.to_string() } else { t.to_string() };
+    }
+    if is_dir {
+        path.file_name().unwrap().to_string_lossy().to_string()
+    } else {
+        path.file_stem().unwrap_or_default().to_string_lossy().to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn display_name_cases() {
+        assert_eq!(display_name(r"C:\Dev\Node.js", true), "Node.js");
+        assert_eq!(display_name(r"C:\Dev\app.exe", false), "app");
+        assert_eq!(display_name(r"C:\", true), "C:");
+        assert_eq!(display_name("https://www.google.com/search?q=1", false), "google.com");
+        assert_eq!(display_name("http://example.org:8080/x", false), "example.org");
+    }
+
+    #[test]
+    fn decode_text_ansi_fallback_does_not_panic() {
+        assert_eq!(decode_text("IconFile=a".as_bytes()), "IconFile=a");
+        let _ = decode_text(&[0x49, 0xE9, 0xFF]);
     }
 }
 
@@ -291,7 +391,7 @@ unsafe fn save_hbitmap_to_png(hbitmap: HBITMAP, save_path: &Path) -> bool {
                     img.put_pixel((x - min_x) as u32, (y - min_y) as u32, Rgba([r, g, b, a]));
                 }
             }
-            if img.save(save_path).is_ok() {
+            if save_png_atomic(&img, save_path) {
                 success = true;
             }
         }
@@ -441,7 +541,7 @@ unsafe fn save_hicon_to_png(hicon: HICON, save_path: &Path) -> bool {
                         img.put_pixel((x - min_x) as u32, (y - min_y) as u32, Rgba([r, g, b, a]));
                     }
                 }
-                if img.save(save_path).is_ok() {
+                if save_png_atomic(&img, save_path) {
                     success = true;
                 }
             }

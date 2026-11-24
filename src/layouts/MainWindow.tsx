@@ -9,6 +9,7 @@ import { ShortcutSetupModal } from '../features/Settings/ShortcutSetupModal';
 import {
   isValidShortcut,
   readSavedShortcutKeys,
+  isShortcutEnabled,
   persistShortcut,
   DEFAULT_SHORTCUT_KEYS,
 } from '../utils/shortcut';
@@ -33,9 +34,8 @@ export function MainWindow() {
     }
 
     // Chỉ khôi phục phím tắt nếu cờ enabled = 'true'
-    const shortcutEnabled = localStorage.getItem('app_shortcut_enabled');
     const savedKeys = readSavedShortcutKeys();
-    if (shortcutEnabled !== 'true' || !savedKeys) return;
+    if (!isShortcutEnabled() || !savedKeys) return;
 
     // Cấu hình cũ có thể chứa phím đơn không còn được phép (sẽ chiếm phím đó trên
     // toàn hệ thống). Chuyển sang tổ hợp mặc định để tính năng vẫn dùng được, thay
