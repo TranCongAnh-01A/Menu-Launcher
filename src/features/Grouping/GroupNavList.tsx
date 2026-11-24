@@ -1,8 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, lazy } from 'react';
 import { SquaresFour, FolderOpen, Plus, SlidersHorizontal } from '@phosphor-icons/react';
 import { useLauncherData } from '../../context/LauncherDataContext';
 import { CreateGroupModal } from './CreateGroupModal';
-import { GroupManagerModal } from './GroupManagerModal';
+import { LazyMount } from '../../components/LazyMount';
+
+const GroupManagerModal = lazy(() => import('./GroupManagerModal').then((m) => ({ default: m.GroupManagerModal })));
 
 export function GroupNavList() {
   const { items, defaultGroup, customGroups, activeGroupId, selectGroup, refresh } = useLauncherData();
@@ -70,7 +72,9 @@ export function GroupNavList() {
       </div>
 
       <CreateGroupModal isOpen={isCreateOpen} onClose={() => setIsCreateOpen(false)} onSuccess={refresh} />
-      <GroupManagerModal isOpen={isManagerOpen} onClose={() => setIsManagerOpen(false)} onSuccess={refresh} />
+      <LazyMount open={isManagerOpen}>
+        <GroupManagerModal isOpen={isManagerOpen} onClose={() => setIsManagerOpen(false)} onSuccess={refresh} />
+      </LazyMount>
     </div>
   );
 }

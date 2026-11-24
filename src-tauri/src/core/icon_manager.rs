@@ -151,28 +151,18 @@ fn decode_text(bytes: &[u8]) -> String {
     if let Ok(s) = std::str::from_utf8(bytes) {
         return s.trim_start_matches('\u{feff}').to_string();
     }
-    #[link(name = "kernel32")]
-    extern "system" {
-        fn MultiByteToWideChar(
-            code_page: u32,
-            flags: u32,
-            src: *const u8,
-            src_len: i32,
-            dst: *mut u16,
-            dst_len: i32,
-        ) -> i32;
-    }
-    const CP_ACP: u32 = 0;
-    if bytes.is_empty() || bytes.len() > i32::MAX as usize {
+    use windows::Win32::Globalization::{MultiByteToWideChar, CP_ACP, MULTI_BYTE_TO_WIDE_CHAR_FLAGS};
+    if bytes.is_empty() {
         return String::from_utf8_lossy(bytes).to_string();
     }
     unsafe {
-        let n = MultiByteToWideChar(CP_ACP, 0, bytes.as_ptr(), bytes.len() as i32, std::ptr::null_mut(), 0);
+        let flags = MULTI_BYTE_TO_WIDE_CHAR_FLAGS(0);
+        let n = MultiByteToWideChar(CP_ACP, flags, bytes, None);
         if n <= 0 {
             return String::from_utf8_lossy(bytes).to_string();
         }
         let mut buf = vec![0u16; n as usize];
-        let m = MultiByteToWideChar(CP_ACP, 0, bytes.as_ptr(), bytes.len() as i32, buf.as_mut_ptr(), n);
+        let m = MultiByteToWideChar(CP_ACP, flags, bytes, Some(&mut buf));
         if m <= 0 {
             return String::from_utf8_lossy(bytes).to_string();
         }
@@ -244,7 +234,7 @@ fn extract_and_save_icon(file_path: &str, save_path: &Path, icon_index: i32) -> 
             if let Ok(hbitmap) = factory.GetImage(size, SIIGBF(1 | 4)) {
                 if !hbitmap.is_invalid() {
                     let success = save_hbitmap_to_png(hbitmap, save_path);
-                    let _ = DeleteObject(hbitmap);
+                    let _ = DeleteObject(hbitmap.into());
                     if success {
                         return true;
                     }
@@ -291,7 +281,7 @@ fn extract_and_save_icon(file_path: &str, save_path: &Path, icon_index: i32) -> 
 
 unsafe fn save_hbitmap_to_png(hbitmap: HBITMAP, save_path: &Path) -> bool {
     let mut bitmap = BITMAP::default();
-    if GetObjectW(hbitmap, std::mem::size_of::<BITMAP>() as i32, Some(&mut bitmap as *mut _ as *mut std::ffi::c_void)) > 0 {
+    if GetObjectW(hbitmap.into(), std::mem::size_of::<BITMAP>() as i32, Some(&mut bitmap as *mut _ as *mut std::ffi::c_void)) > 0 {
         let width = bitmap.bmWidth;
         let height = bitmap.bmHeight;
         let hdc = GetDC(None);
@@ -414,7 +404,7 @@ unsafe fn save_hicon_to_png(hicon: HICON, save_path: &Path) -> bool {
     
     if !hbm_color.is_invalid() {
         let mut bitmap = BITMAP::default();
-        if GetObjectW(hbm_color, std::mem::size_of::<BITMAP>() as i32, Some(&mut bitmap as *mut _ as *mut std::ffi::c_void)) > 0 {
+        if GetObjectW(hbm_color.into(), std::mem::size_of::<BITMAP>() as i32, Some(&mut bitmap as *mut _ as *mut std::ffi::c_void)) > 0 {
             let width = bitmap.bmWidth;
             let height = bitmap.bmHeight;
             let hdc = GetDC(None);
@@ -550,10 +540,10 @@ unsafe fn save_hicon_to_png(hicon: HICON, save_path: &Path) -> bool {
     }
     
     if !hbm_color.is_invalid() {
-        let _ = DeleteObject(hbm_color);
+        let _ = DeleteObject(hbm_color.into());
     }
     if !hbm_mask.is_invalid() {
-        let _ = DeleteObject(hbm_mask);
+        let _ = DeleteObject(hbm_mask.into());
     }
     
     success

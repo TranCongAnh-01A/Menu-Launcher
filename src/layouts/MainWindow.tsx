@@ -1,11 +1,10 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, lazy } from 'react';
 import { DownloadSimple } from '@phosphor-icons/react';
 import { Sidebar } from './Sidebar';
 import { ContentArea } from './ContentArea';
 import { setAlwaysOnTop, registerGlobalShortcut } from '../api';
 import { useNotification } from '../context/NotificationContext';
 import { addItemsToGroup, summarizeAddOutcome } from '../utils/addItems';
-import { ShortcutSetupModal } from '../features/Settings/ShortcutSetupModal';
 import {
   isValidShortcut,
   readSavedShortcutKeys,
@@ -19,6 +18,9 @@ import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { listen } from '@tauri-apps/api/event';
 import { BackgroundLayer } from '../components/BackgroundLayer';
 import { LauncherDataProvider } from '../context/LauncherDataContext';
+import { LazyMount } from '../components/LazyMount';
+
+const ShortcutSetupModal = lazy(() => import('../features/Settings/ShortcutSetupModal').then((m) => ({ default: m.ShortcutSetupModal })));
 
 export function MainWindow() {
   const [isDragging, setIsDragging] = useState(false);
@@ -240,10 +242,12 @@ export function MainWindow() {
       )}
 
       {/* Shortcut Setup Modal on First Launch */}
-      <ShortcutSetupModal
-        isOpen={isShortcutModalOpen}
-        onClose={() => setIsShortcutModalOpen(false)}
-      />
+      <LazyMount open={isShortcutModalOpen}>
+        <ShortcutSetupModal
+          isOpen={isShortcutModalOpen}
+          onClose={() => setIsShortcutModalOpen(false)}
+        />
+      </LazyMount>
     </div>
   );
 }

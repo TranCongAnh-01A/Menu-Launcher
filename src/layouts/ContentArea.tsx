@@ -1,12 +1,14 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, lazy } from 'react';
 import { MagnifyingGlass, SquaresFour, ListBullets, Play } from '@phosphor-icons/react';
 import { MenuViewer } from '../features/MenuViewer/MenuViewer';
-import { AddItemModal } from '../features/ItemManager/AddItemModal';
 import { launchItems, hideWindow, logFrontendError } from '../api';
 import { useNotification } from '../context/NotificationContext';
 import { useLauncherData } from '../context/LauncherDataContext';
 import { summarizeLaunchResult } from '../utils/launch';
 import { hasOpenOverlay, FOCUS_SEARCH_EVENT } from '../utils/overlay';
+import { LazyMount } from '../components/LazyMount';
+
+const AddItemModal = lazy(() => import('../features/ItemManager/AddItemModal').then((m) => ({ default: m.AddItemModal })));
 
 export function ContentArea() {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -157,12 +159,14 @@ export function ContentArea() {
         />
       </div>
 
-      <AddItemModal
-        isOpen={isAddModalOpen}
-        onClose={() => setIsAddModalOpen(false)}
-        onSuccess={refresh}
-        initialGroupId={activeGroupId === 'tatca' ? 'grp-default' : activeGroupId}
-      />
+      <LazyMount open={isAddModalOpen}>
+        <AddItemModal
+          isOpen={isAddModalOpen}
+          onClose={() => setIsAddModalOpen(false)}
+          onSuccess={refresh}
+          initialGroupId={activeGroupId === 'tatca' ? 'grp-default' : activeGroupId}
+        />
+      </LazyMount>
     </main>
   );
 }

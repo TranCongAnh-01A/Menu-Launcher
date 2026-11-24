@@ -9,6 +9,23 @@ const host = process.env.TAURI_DEV_HOST;
 export default defineConfig(async () => ({
   plugins: [react(), tailwindcss()],
 
+  build: {
+    rollupOptions: {
+      output: {
+        // Tách vendor để chunk chính nhỏ và cache tốt hơn.
+        manualChunks(id: string) {
+          if (!id.includes("node_modules")) return undefined;
+          if (id.includes("@phosphor-icons")) return "vendor-phosphor";
+          if (id.includes("@dnd-kit")) return "vendor-dnd";
+          if (id.includes("@tanstack")) return "vendor-tanstack";
+          if (id.includes("@tauri-apps")) return "vendor-tauri";
+          if (/node_modules[\/](react|react-dom|scheduler)[\/]/.test(id)) return "vendor-react";
+          return undefined;
+        },
+      },
+    },
+  },
+
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //
   // 1. prevent Vite from obscuring rust errors

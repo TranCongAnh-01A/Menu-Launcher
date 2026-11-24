@@ -1,7 +1,9 @@
-import { useState } from 'react';
+import { useState, lazy } from 'react';
 import { SquaresFour, Gear } from '@phosphor-icons/react';
-import { SettingsModal } from '../features/Settings/SettingsModal';
 import { GroupNavList } from '../features/Grouping/GroupNavList';
+import { LazyMount } from '../components/LazyMount';
+
+const SettingsModal = lazy(() => import('../features/Settings/SettingsModal').then((m) => ({ default: m.SettingsModal })));
 
 export function Sidebar() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -45,10 +47,12 @@ export function Sidebar() {
         </button>
       </div>
 
-      <SettingsModal
-        isOpen={isSettingsOpen}
-        onClose={() => setIsSettingsOpen(false)}
-      />
+      <LazyMount open={isSettingsOpen}>
+        <SettingsModal
+          isOpen={isSettingsOpen}
+          onClose={() => setIsSettingsOpen(false)}
+        />
+      </LazyMount>
     </aside>
   );
 }

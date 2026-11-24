@@ -22,22 +22,17 @@ import {
 } from '@dnd-kit/sortable';
 import { SortableGridCard, SortableListCard } from './SortableItemCards';
 import { GroupHeaderDropRow } from './GroupHeaderDropRow';
+import { ItemContextMenu } from './ItemContextMenu';
+import { RenameItemModal } from './RenameItemModal';
 import {
   AppWindow,
   Link,
   Plus,
-  Trash,
   Package,
-  Play,
-  FolderOpen,
-  PencilSimple,
-  ShieldCheck,
   // WarningCircle,
-  FolderSimple,
-  CaretRight,
 } from '@phosphor-icons/react';
 
-import { Item, Group, openItem, openItemAsAdmin, deleteItem, restoreItem, renameItem, showInFolder, launchItems, reorderItems, moveItemToGroup } from '../../api';
+import { Item, Group, openItem, deleteItem, restoreItem, launchItems, reorderItems, moveItemToGroup } from '../../api';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { useNotification } from '../../context/NotificationContext';
 import { summarizeLaunchResult } from '../../utils/launch';
@@ -45,13 +40,7 @@ import { hasOpenOverlay } from '../../utils/overlay';
 
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { setItemIcon, resetItemIcon } from '../../api'; // gộp vào dòng import api hiện có
-// và thêm ImageSquare, ArrowCounterClockwise vào import từ '@phosphor-icons/react'
 
-import {
-  // ...các icon đang có (Play, ShieldCheck, FolderOpen, PencilSimple, ...)
-  ImageSquare,
-  ArrowCounterClockwise,
-} from '@phosphor-icons/react';
 
 /** Nhãn dùng chung cho các mục có `ton_tai === false`. */
 // const MISSING_HINT = 'Tệp không còn tồn tại trên máy';
@@ -90,7 +79,6 @@ export function MenuViewer({ items, groups, activeGroupId, viewMode = 'grid', se
   }, []);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; item: Item } | null>(null);
   const [renameModalItem, setRenameModalItem] = useState<Item | null>(null);
-  const [renameInput, setRenameInput] = useState('');
   const [localItems, setLocalItems] = useState<Item[]>(items);
   useEffect(() => {
     setLocalItems(items);
@@ -528,25 +516,6 @@ export function MenuViewer({ items, groups, activeGroupId, viewMode = 'grid', se
     setContextMenu({ x, y, item });
   };
 
-  const handleSaveRename = async () => {
-    if (!renameModalItem) return;
-    const cleanName = renameInput.trim();
-    if (!cleanName) {
-      showToast('Tên ứng dụng không được để trống', 'warning');
-      return;
-    }
-    try {
-      await renameItem(renameModalItem.id, cleanName);
-      window.dispatchEvent(new CustomEvent('app-items-changed'));
-      showToast('Đã đổi tên hiển thị thành công', 'success');
-      setRenameModalItem(null);
-    } catch (e) {
-      console.error(e);
-      showToast('Lỗi khi đổi tên ứng dụng', 'error');
-    }
-  };
-
-
     const handleChangeIcon = async (item: Item) => {
       try {
         const selected = await openDialog({
@@ -785,208 +754,24 @@ export function MenuViewer({ items, groups, activeGroupId, viewMode = 'grid', se
       )}
 
       {/* Context Menu Chuột Phải */}
-      {contextMenu &&
-        createPortal(
-          <div
-            style={{ top: contextMenu.y, left: contextMenu.x }}
-            data-overlay="context-menu"
-            className="fixed z-[999] min-w-[190px] rounded-xl border border-border bg-card/95 backdrop-blur-md p-1.5 shadow-modal animate-fade-in text-xs font-medium"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <button
-              onClick={() => {
-                handleLaunchItem(contextMenu.item);
-                setContextMenu(null);
-              }}
-              className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-foreground hover:bg-muted/80 transition-colors"
-            >
-              <Play size={15} weight="fill" className="text-primary" />
-              <span>Mở ứng dụng</span>
-            </button>
-
-            {/* Chạy dưới quyền Administrator (chỉ hiển thị với file/app cục bộ) */}
-            {!contextMenu.item.duong_dan.toLowerCase().startsWith('http://') &&
-              !contextMenu.item.duong_dan.toLowerCase().startsWith('https://') && (
-                <button
-                  onClick={async () => {
-                    const item = contextMenu.item;
-                    setContextMenu(null);
-                    try {
-                      await openItemAsAdmin(item.id);
-                      showToast(`Đã yêu cầu mở [${item.ten}] dưới quyền Administrator`, 'info');
-                    } catch (e) {
-                      showToast(String(e), 'warning');
-                    }
-                  }}
-                  className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-foreground hover:bg-muted/80 transition-colors"
-                >
-                  <ShieldCheck size={15} weight="duotone" className="text-amber-500" />
-                  <span>Chạy quyền Administrator</span>
-                </button>
-              )}
-
-            <button
-              onClick={async () => {
-                const path = contextMenu.item.duong_dan;
-                setContextMenu(null);
-                try {
-                  await showInFolder(path);
-                } catch (e) {
-                  console.error(e);
-                  showToast('Không thể mở vị trí tệp', 'error');
-                }
-              }}
-              className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-foreground hover:bg-muted/80 transition-colors"
-            >
-              <FolderOpen size={15} weight="regular" className="text-muted-foreground" />
-              <span>Mở vị trí tệp</span>
-            </button>
-
-            <button
-              onClick={() => {
-                setRenameModalItem(contextMenu.item);
-                setRenameInput(contextMenu.item.ten);
-                setContextMenu(null);
-              }}
-              className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-foreground hover:bg-muted/80 transition-colors"
-            >
-              <PencilSimple size={15} weight="regular" className="text-muted-foreground" />
-              <span>Đổi tên hiển thị</span>
-            </button>
-
-            <button
-              onClick={() => {
-                const item = contextMenu.item;
-                setContextMenu(null);
-                handleChangeIcon(item);
-              }}
-              className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-foreground hover:bg-muted/80 transition-colors"
-            >
-              <ImageSquare size={15} weight="regular" className="text-muted-foreground" />
-              <span>Đổi icon...</span>
-            </button>
-
-            {/\/custom-[^\\/]*$/.test(contextMenu.item.icon_cache.replace(/\\/g, '/')) && (
-              <button
-                onClick={() => {
-                  const item = contextMenu.item;
-                  setContextMenu(null);
-                  handleResetIcon(item);
-                }}
-                className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-foreground hover:bg-muted/80 transition-colors"
-              >
-                <ArrowCounterClockwise size={15} weight="regular" className="text-muted-foreground" />
-                <span>Khôi phục icon mặc định</span>
-              </button>
-            )}
-
-
-            {/* Chuyển sang nhóm */}
-            {groups && groups.length > 1 && (
-              <div className="relative group/submenu">
-                <div className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-foreground hover:bg-muted/80 transition-colors cursor-pointer">
-                  <div className="flex items-center gap-2.5">
-                    <FolderSimple size={15} weight="regular" className="text-muted-foreground" />
-                    <span>Chuyển sang nhóm</span>
-                  </div>
-                  <CaretRight size={12} weight="bold" className="text-muted-foreground" />
-                </div>
-
-                <div
-                  className={`hidden group-hover/submenu:block absolute top-0 min-w-[160px] rounded-xl border border-border bg-card/95 backdrop-blur-md p-1.5 shadow-modal animate-fade-in text-xs font-medium max-h-56 overflow-y-auto ${
-                    contextMenu.x > window.innerWidth - 380 ? 'right-full mr-1' : 'left-full ml-1'
-                  }`}
-                >
-                  {groups.map((g) => {
-                    const isCurrent = g.id === contextMenu.item.nhom_id;
-                    return (
-                      <button
-                        key={g.id}
-                        disabled={isCurrent}
-                        onClick={async () => {
-                          const targetGroup = g;
-                          const currentItem = contextMenu.item;
-                          setContextMenu(null);
-                          try {
-                            await moveItemToGroup(currentItem.id, targetGroup.id);
-                            showToast(`Đã chuyển "${currentItem.ten}" sang nhóm "${targetGroup.ten}"`, 'success');
-                            window.dispatchEvent(new CustomEvent('app-items-changed'));
-                          } catch (e) {
-                            console.error(e);
-                            showToast(`Lỗi khi chuyển nhóm: ${String(e)}`, 'error');
-                          }
-                        }}
-                        className={`flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 text-left transition-colors ${
-                          isCurrent
-                            ? 'opacity-40 cursor-not-allowed text-muted-foreground'
-                            : 'text-foreground hover:bg-muted/80'
-                        }`}
-                      >
-                        <span className="truncate">{g.ten}</span>
-                        {isCurrent && <span className="text-[10px] text-muted-foreground font-mono">(Hiện tại)</span>}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
-            <div className="my-1 h-[1px] bg-border/60" />
-
-            <button
-              onClick={() => {
-                handleDeleteItem(contextMenu.item);
-                setContextMenu(null);
-              }}
-              className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-destructive hover:bg-destructive/10 transition-colors"
-            >
-              <Trash size={15} weight="regular" />
-              <span>Xóa khỏi Menu</span>
-            </button>
-          </div>,
-          document.body
-        )}
+      {contextMenu && (
+        <ItemContextMenu
+          contextMenu={contextMenu}
+          groups={groups}
+          showToast={showToast}
+          onClose={() => setContextMenu(null)}
+          onLaunch={handleLaunchItem}
+          onDelete={handleDeleteItem}
+          onRename={(item) => setRenameModalItem(item)}
+          onChangeIcon={handleChangeIcon}
+          onResetIcon={handleResetIcon}
+        />
+      )}
 
       {/* Modal Đổi tên hiển thị */}
-      {renameModalItem &&
-        createPortal(
-          <div className="modal-backdrop flex items-center justify-center p-4" onClick={() => setRenameModalItem(null)}>
-            <div className="modal-panel w-full max-w-sm p-6 animate-modal-in" onClick={(e) => e.stopPropagation()}>
-              <h3 className="font-serif text-lg font-bold tracking-tight text-foreground mb-2">
-                Đổi tên hiển thị
-              </h3>
-              <p className="text-xs text-muted-foreground mb-4">
-                Chỉ thay đổi tên hiển thị trong Menu Launcher, không làm đổi tên file gốc trên máy tính.
-              </p>
-              <input
-                type="text"
-                value={renameInput}
-                onChange={(e) => setRenameInput(e.target.value)}
-                autoFocus
-                className="w-full rounded-xl border border-border bg-card/70 px-3.5 py-2 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/15 mb-5"
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleSaveRename();
-                  if (e.key === 'Escape') setRenameModalItem(null);
-                }}
-              />
-              <div className="flex justify-end gap-2">
-                <button
-                  onClick={() => setRenameModalItem(null)}
-                  className="btn-ghost text-xs px-4 py-2 border border-border"
-                >
-                  Hủy
-                </button>
-                <button
-                  onClick={handleSaveRename}
-                  className="btn-primary text-xs px-4 py-2"
-                >
-                  Lưu thay đổi
-                </button>
-              </div>
-            </div>
-          </div>,
-          document.body
-        )}
+      {renameModalItem && (
+        <RenameItemModal item={renameModalItem} showToast={showToast} onClose={() => setRenameModalItem(null)} />
+      )}
     </div>
     {createPortal(
       <DragOverlay dropAnimation={null}>
