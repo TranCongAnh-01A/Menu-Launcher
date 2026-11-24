@@ -10,6 +10,7 @@ import {
   ImageSquare,
   ArrowCounterClockwise,
   ClockCounterClockwise,
+  Gear,
 } from '@phosphor-icons/react';
 import { Item, Group, openItemAsAdmin, showInFolder, moveItemToGroup } from '../../api';
 
@@ -27,6 +28,7 @@ interface ItemContextMenuProps {
   onLaunch: (item: Item) => void;
   onDelete: (item: Item) => void;
   onRename: (item: Item) => void;
+  onEdit: (item: Item) => void;
   onChangeIcon: (item: Item) => void;
   onResetIcon: (item: Item) => void;
   onResetUsage: (item: Item) => void;
@@ -41,6 +43,7 @@ export function ItemContextMenu({
   onLaunch,
   onDelete,
   onRename,
+  onEdit,
   onChangeIcon,
   onResetIcon,
   onResetUsage,
@@ -111,6 +114,18 @@ export function ItemContextMenu({
             >
               <PencilSimple size={15} weight="regular" className="text-muted-foreground" />
               <span>Đổi tên hiển thị</span>
+            </button>
+
+            <button
+              onClick={() => {
+                const item = contextMenu.item;
+                onClose();
+                onEdit(item);
+              }}
+              className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-foreground hover:bg-muted/80 transition-colors"
+            >
+              <Gear size={15} weight="regular" className="text-muted-foreground" />
+              <span>Sửa mục...</span>
             </button>
 
             <button

@@ -24,9 +24,11 @@ import { SortableGridCard, SortableListCard } from './SortableItemCards';
 import { GroupHeaderDropRow } from './GroupHeaderDropRow';
 import { ItemContextMenu } from './ItemContextMenu';
 import { RenameItemModal } from './RenameItemModal';
+import { EditItemModal } from '../ItemManager/EditItemModal';
 import {
   AppWindow,
   Link,
+  Terminal,
   Plus,
   Package,
   // WarningCircle,
@@ -80,6 +82,7 @@ export function MenuViewer({ items, groups, activeGroupId, viewMode = 'grid', se
   }, []);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; item: Item } | null>(null);
   const [renameModalItem, setRenameModalItem] = useState<Item | null>(null);
+  const [editModalItem, setEditModalItem] = useState<Item | null>(null);
   const [localItems, setLocalItems] = useState<Item[]>(items);
   useEffect(() => {
     setLocalItems(items);
@@ -596,6 +599,7 @@ export function MenuViewer({ items, groups, activeGroupId, viewMode = 'grid', se
         />
       );
     }
+    if (item.loai === 'lenh' || item.loai === 'script') return <Terminal size={iconSize} weight="regular" />;
     if (item.loai === 'link') return <Link size={iconSize} weight="regular" />;
     if (item.loai === 'folder') return <Package size={iconSize} weight="regular" />;
     return <AppWindow size={iconSize} weight="regular" />;
@@ -784,6 +788,7 @@ export function MenuViewer({ items, groups, activeGroupId, viewMode = 'grid', se
           onLaunch={handleLaunchItem}
           onDelete={handleDeleteItem}
           onRename={(item) => setRenameModalItem(item)}
+          onEdit={(item) => setEditModalItem(item)}
           onChangeIcon={handleChangeIcon}
           onResetIcon={handleResetIcon}
           onResetUsage={handleResetUsage}
@@ -791,6 +796,9 @@ export function MenuViewer({ items, groups, activeGroupId, viewMode = 'grid', se
       )}
 
       {/* Modal Đổi tên hiển thị */}
+      {editModalItem && (
+        <EditItemModal item={editModalItem} showToast={showToast} onClose={() => setEditModalItem(null)} />
+      )}
       {renameModalItem && (
         <RenameItemModal item={renameModalItem} showToast={showToast} onClose={() => setRenameModalItem(null)} />
       )}

@@ -37,7 +37,7 @@ impl Drop for ComGuard {
     }
 }
 
-fn resolve_shortcut(lnk_path: &str) -> (Option<String>, Option<(String, i32)>) {
+pub(crate) fn resolve_shortcut(lnk_path: &str) -> (Option<String>, Option<(String, i32)>) {
     unsafe {
         if let Ok(shell_link) = CoCreateInstance::<_, IShellLinkW>(&ShellLink, None, CLSCTX_INPROC_SERVER) {
             if let Ok(persist_file) = shell_link.cast::<IPersistFile>() {
@@ -172,7 +172,7 @@ fn decode_text(bytes: &[u8]) -> String {
 
 /// Tên hiển thị: thư mục giữ nguyên tên (có dấu chấm), ổ đĩa gốc -> "C:",
 /// URL -> host bỏ "www.", file -> bỏ phần mở rộng.
-fn display_name(file_path: &str, is_dir: bool) -> String {
+pub(crate) fn display_name(file_path: &str, is_dir: bool) -> String {
     let lower = file_path.to_lowercase();
     if lower.starts_with("http://") || lower.starts_with("https://") {
         let rest = &file_path[file_path.find("://").unwrap() + 3..];

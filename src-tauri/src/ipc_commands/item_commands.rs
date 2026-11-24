@@ -174,26 +174,33 @@ fn to_wide<S: AsRef<std::ffi::OsStr>>(s: S) -> Vec<u16> {
     s.as_ref().encode_wide().chain(std::iter::once(0)).collect()
 }
 
-/// Gọi ShellExecuteW với verb chỉ định. Trả về false nếu Windows từ chối mở
-/// (mã trả về <= 32).
-fn shell_execute(path: &str, verb: windows::core::PCWSTR) -> bool {
+/// Gọi ShellExecuteW với verb, tham số, thư mục làm việc và kiểu cửa sổ tuỳ chọn.
+/// Trả về false nếu Windows từ chối mở (mã trả về <= 32).
+fn shell_execute_ex(
+    path: &str,
+    verb: windows::core::PCWSTR,
+    params: &str,
+    dir: Option<&str>,
+    hide: bool,
+) -> bool {
     // ShellExecuteW cần COM (STA) trên thread gọi; ComGuard cân bằng Init/Uninit.
     let _com = crate::core::icon_manager::ComGuard::new();
     let wide_path = to_wide(path);
+    let wide_params: Option<Vec<u16>> = if params.is_empty() { None } else { Some(to_wide(params)) };
+    let wide_dir: Option<Vec<u16>> = dir.map(to_wide);
 
-    // Đặt thư mục làm việc về thư mục chứa tệp — nhiều ứng dụng portable cần điều này.
-    let wide_dir: Option<Vec<u16>> = if crate::core::data_service::is_web_link(path) {
-        None
-    } else {
-        std::path::Path::new(path)
-            .parent()
-            .filter(|p| p.is_dir())
-            .map(to_wide)
+    let lp_params = match &wide_params {
+        Some(p) => windows::core::PCWSTR(p.as_ptr()),
+        None => windows::core::PCWSTR::null(),
     };
-
     let lp_dir = match &wide_dir {
         Some(d) => windows::core::PCWSTR(d.as_ptr()),
         None => windows::core::PCWSTR::null(),
+    };
+    let show = if hide {
+        windows::Win32::UI::WindowsAndMessaging::SW_HIDE
+    } else {
+        windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL
     };
 
     unsafe {
@@ -201,12 +208,25 @@ fn shell_execute(path: &str, verb: windows::core::PCWSTR) -> bool {
             None,
             verb,
             windows::core::PCWSTR(wide_path.as_ptr()),
-            windows::core::PCWSTR::null(),
+            lp_params,
             lp_dir,
-            windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL,
+            show,
         );
         (hinstance.0 as usize) > 32
     }
+}
+
+/// Mở một đường dẫn như cũ: thư mục làm việc = thư mục chứa tệp (trừ link web).
+fn shell_execute(path: &str, verb: windows::core::PCWSTR) -> bool {
+    let dir: Option<String> = if crate::core::data_service::is_web_link(path) {
+        None
+    } else {
+        std::path::Path::new(path)
+            .parent()
+            .filter(|p| p.is_dir())
+            .map(|p| p.to_string_lossy().to_string())
+    };
+    shell_execute_ex(path, verb, "", dir.as_deref(), false)
 }
 
 /// Mở đường dẫn bằng shell mặc định, có fallback qua crate `open`.
@@ -214,22 +234,54 @@ fn launch_path_blocking(path: &str) -> bool {
     shell_execute(path, windows::core::w!("open")) || open::that(path).is_ok()
 }
 
-/// Chạy `launch_path_blocking` trên thread blocking để không chặn worker tokio.
-async fn launch_path(path: &str) -> bool {
-    let path = path.to_string();
-    tauri::async_runtime::spawn_blocking(move || launch_path_blocking(&path))
-        .await
-        .unwrap_or(false)
+/// Mở một mục theo `loai` (blocking). `admin` = verb `runas` (lenh/script/file).
+fn launch_item_blocking(item: &Item, admin: bool) -> bool {
+    use crate::core::launcher::{plan_launch, LaunchPlan};
+    let browser_ok = !item.trinh_duyet.trim().is_empty()
+        && std::path::Path::new(item.trinh_duyet.trim()).is_file();
+    let verb = if admin {
+        windows::core::w!("runas")
+    } else {
+        windows::core::w!("open")
+    };
+    match plan_launch(item, browser_ok) {
+        LaunchPlan::Default => {
+            if admin {
+                shell_execute(&item.duong_dan, verb)
+            } else {
+                launch_path_blocking(&item.duong_dan)
+            }
+        }
+        LaunchPlan::Command { file, params, dir, hide } => {
+            shell_execute_ex(&file, verb, &params, dir.as_deref(), hide)
+        }
+        LaunchPlan::Script { program, raw_args, dir, hide } => {
+            if admin {
+                shell_execute_ex(&program, verb, &raw_args, dir.as_deref(), hide)
+            } else {
+                // CREATE_NO_WINDOW (ẩn console) hoặc CREATE_NEW_CONSOLE (hiện cửa sổ).
+                let flags: u32 = if hide { 0x0800_0000 } else { 0x0000_0010 };
+                let mut cmd = std::process::Command::new(&program);
+                cmd.raw_arg(&raw_args).creation_flags(flags);
+                if let Some(d) = &dir {
+                    cmd.current_dir(d);
+                }
+                cmd.spawn().is_ok()
+            }
+        }
+        LaunchPlan::Browser { exe, url } => {
+            std::process::Command::new(&exe).arg(&url).spawn().is_ok()
+                || launch_path_blocking(&item.duong_dan)
+        }
+    }
 }
 
-/// Mở bằng quyền Administrator (verb `runas`) trên thread blocking.
-async fn launch_path_as_admin(path: &str) -> bool {
-    let path = path.to_string();
-    tauri::async_runtime::spawn_blocking(move || {
-        shell_execute(&path, windows::core::w!("runas"))
-    })
-    .await
-    .unwrap_or(false)
+/// Chạy `launch_item_blocking` trên thread blocking để không chặn worker tokio.
+async fn launch_item(item: &Item, admin: bool) -> bool {
+    let item = item.clone();
+    tauri::async_runtime::spawn_blocking(move || launch_item_blocking(&item, admin))
+        .await
+        .unwrap_or(false)
 }
 
 /// Kiểm tra tồn tại trên thread blocking: ổ mạng/UNC offline có thể treo lâu.
@@ -240,12 +292,12 @@ async fn path_is_valid_async(path: &str) -> bool {
         .unwrap_or(false)
 }
 
-async fn find_item(state: &Arc<AppState>, id: &str) -> Result<(String, String), String> {
+async fn find_item(state: &Arc<AppState>, id: &str) -> Result<Item, String> {
     let data = state.data.read().await;
     data.muc
         .iter()
         .find(|i| i.id == id)
-        .map(|i| (i.ten.clone(), i.duong_dan.clone()))
+        .cloned()
         .ok_or_else(|| "Không tìm thấy ứng dụng".to_string())
 }
 
@@ -316,7 +368,8 @@ fn is_script(path_lower: &str) -> bool {
 
 #[tauri::command]
 pub async fn open_item(id: String, state: State<'_, Arc<AppState>>) -> Result<(), String> {
-    let (ten, path) = find_item(&state, &id).await?;
+    let item = find_item(&state, &id).await?;
+    let (ten, path) = (item.ten.clone(), item.duong_dan.clone());
 
     if !path_is_valid_async(&path).await {
         // Đồng bộ lại trạng thái để giao diện đánh dấu mục này là không còn hợp lệ.
@@ -330,7 +383,7 @@ pub async fn open_item(id: String, state: State<'_, Arc<AppState>>) -> Result<()
         ));
     }
 
-    if is_script(&path.to_lowercase()) {
+    if item.loai == "script" || item.loai == "lenh" || is_script(&path.to_lowercase()) {
         state
             .logger
             .warn(&format!("CẢNH BÁO BẢO MẬT: Mở file script [{}] - {}", ten, path));
@@ -338,7 +391,7 @@ pub async fn open_item(id: String, state: State<'_, Arc<AppState>>) -> Result<()
         state.logger.info(&format!("Mở ứng dụng [{}] - {}", ten, path));
     }
 
-    if !launch_path(&path).await {
+    if !launch_item(&item, false).await {
         state
             .logger
             .error(&format!("Mở thất bại [{}] - {}", ten, path));
@@ -356,7 +409,8 @@ pub async fn open_item(id: String, state: State<'_, Arc<AppState>>) -> Result<()
 
 #[tauri::command]
 pub async fn open_item_as_admin(id: String, state: State<'_, Arc<AppState>>) -> Result<(), String> {
-    let (ten, path) = find_item(&state, &id).await?;
+    let item = find_item(&state, &id).await?;
+    let (ten, path) = (item.ten.clone(), item.duong_dan.clone());
 
     if crate::core::data_service::is_web_link(&path) {
         return Err("Không thể mở liên kết web dưới quyền Administrator".into());
@@ -375,7 +429,7 @@ pub async fn open_item_as_admin(id: String, state: State<'_, Arc<AppState>>) -> 
         ten, path
     ));
 
-    if !launch_path_as_admin(&path).await {
+    if !launch_item(&item, true).await {
         return Err("Người dùng đã hủy hoặc không thể cấp quyền Administrator".into());
     }
 
@@ -401,11 +455,11 @@ pub async fn launch_items(
     state: State<'_, Arc<AppState>>,
 ) -> Result<LaunchResult, String> {
     // Giữ đúng thứ tự do frontend gửi lên.
-    let targets: Vec<(String, String, String)> = {
+    let targets: Vec<Item> = {
         let data = state.data.read().await;
         ids.iter()
             .filter_map(|id| data.muc.iter().find(|i| &i.id == id))
-            .map(|i| (i.id.clone(), i.ten.clone(), i.duong_dan.clone()))
+            .cloned()
             .collect()
     };
 
@@ -415,7 +469,8 @@ pub async fn launch_items(
     };
 
     let mut launched_ids: Vec<String> = Vec::new();
-    for (index, (id, ten, path)) in targets.iter().enumerate() {
+    for (index, item) in targets.iter().enumerate() {
+        let (id, ten, path) = (&item.id, &item.ten, &item.duong_dan);
         if index > 0 {
             tokio::time::sleep(tokio::time::Duration::from_millis(150)).await;
         }
@@ -426,7 +481,7 @@ pub async fn launch_items(
             continue;
         }
 
-        if launch_path(path).await {
+        if launch_item(item, false).await {
             result.da_mo += 1;
             launched_ids.push(id.clone());
         } else {
@@ -736,6 +791,204 @@ pub async fn reset_item_icon(id: String, state: State<'_, Arc<AppState>>) -> Res
     remove_custom_icon_file(&state, &old_icon).await;
     state.save().await?;
     Ok(())
+}
+
+// === Loại mục nâng cao (lenh / script / link + trình duyệt) ===
+
+const CUSTOM_LOAI: [&str; 3] = ["lenh", "script", "link"];
+
+/// Nguồn trích icon: link có trình duyệt riêng -> icon trình duyệt.
+fn icon_source(loai: &str, duong_dan: &str, trinh_duyet: &str) -> String {
+    if loai == "link" && !trinh_duyet.trim().is_empty() && std::path::Path::new(trinh_duyet.trim()).is_file() {
+        trinh_duyet.trim().to_string()
+    } else {
+        duong_dan.to_string()
+    }
+}
+
+/// Kiểm tra + chuẩn hoá đầu vào cho loại nâng cao. Trả về (duong_dan, tham_so, cwd, trinh_duyet).
+fn validate_custom(
+    loai: &str,
+    duong_dan: &str,
+    tham_so: &str,
+    thu_muc: &str,
+    trinh_duyet: &str,
+) -> Result<(String, String, String, String), String> {
+    let path = duong_dan.trim().trim_matches('"').to_string();
+    if path.is_empty() {
+        return Err("Đường dẫn không được để trống".into());
+    }
+    match loai {
+        "link" => {
+            let url = crate::core::launcher::normalize_url(&path);
+            Ok((url, String::new(), String::new(), trinh_duyet.trim().to_string()))
+        }
+        "lenh" | "script" => {
+            if !std::path::Path::new(&path).is_file() {
+                return Err(format!("Không tìm thấy tệp: {}", path));
+            }
+            let cwd = thu_muc.trim().to_string();
+            if !cwd.is_empty() && !std::path::Path::new(&cwd).is_dir() {
+                return Err(format!("Thư mục làm việc không tồn tại: {}", cwd));
+            }
+            Ok((path, tham_so.trim().to_string(), cwd, String::new()))
+        }
+        _ => Err("Loại mục không hợp lệ".into()),
+    }
+}
+
+/// Thêm mục Lệnh / Script / Link web (có tham số, thư mục, trình duyệt...).
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn add_custom_item(
+    ten: String,
+    loai: String,
+    duong_dan: String,
+    tham_so: String,
+    thu_muc_lam_viec: String,
+    trinh_duyet: String,
+    an_console: bool,
+    nhom_id: String,
+    state: State<'_, Arc<AppState>>,
+) -> Result<AddItemResult, String> {
+    if !CUSTOM_LOAI.contains(&loai.as_str()) {
+        return Err("Loại mục không hợp lệ".into());
+    }
+    let (path, args, cwd, browser) =
+        validate_custom(&loai, &duong_dan, &tham_so, &thu_muc_lam_viec, &trinh_duyet)?;
+
+    // Icon lấy từ nguồn icon (trình duyệt nếu có); tên mặc định theo chính đường dẫn.
+    let (icon_file, _) = extract_icon_and_name(&state, icon_source(&loai, &path, &browser)).await?;
+    let auto_name = crate::core::icon_manager::display_name(&path, false);
+    let name = if ten.trim().is_empty() { auto_name } else { ten.trim().to_string() };
+
+    let mut data = state.data.write().await;
+    if !data.nhom_danh_sach.iter().any(|g| g.id == nhom_id) {
+        return Err("Nhóm đích không còn tồn tại. Vui lòng chọn lại nhóm.".into());
+    }
+    let norm = path.replace('/', "\\").to_lowercase();
+    // Cùng đường dẫn nhưng khác tham số / loại vẫn là mục khác nhau.
+    if data.muc.iter().any(|i| {
+        i.duong_dan.replace('/', "\\").to_lowercase() == norm
+            && i.loai == loai
+            && i.tham_so == args
+            && i.trinh_duyet == browser
+    }) {
+        return Ok(AddItemResult::AlreadyExists);
+    }
+
+    let unique_id = format!(
+        "item-{}-{}",
+        chrono::Local::now().timestamp_nanos_opt().unwrap_or_else(|| chrono::Local::now().timestamp_millis() * 1_000_000),
+        ITEM_COUNTER.fetch_add(1, Ordering::Relaxed)
+    );
+    let mut item = Item::new(unique_id, name.clone(), path.clone(), loai.clone(), icon_file.unwrap_or_default(), nhom_id);
+    item.tham_so = args;
+    item.thu_muc_lam_viec = cwd;
+    item.trinh_duyet = browser;
+    item.an_console = an_console;
+    data.muc.push(item);
+    drop(data);
+    state.logger.info(&format!("Thêm mục [{}] loại {} - {}", name, loai, path));
+    state.save().await?;
+    Ok(AddItemResult::Added)
+}
+
+/// Sửa chi tiết một mục (tên, đường dẫn, tham số, thư mục, trình duyệt, ẩn console).
+/// `loai` chỉ đổi được giữa lenh / script / link; mục thường (exe, folder, doc)
+/// giữ nguyên loại và chỉ sửa tên + đường dẫn.
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn update_item_details(
+    id: String,
+    ten: String,
+    duong_dan: String,
+    tham_so: String,
+    thu_muc_lam_viec: String,
+    trinh_duyet: String,
+    an_console: bool,
+    loai: Option<String>,
+    state: State<'_, Arc<AppState>>,
+) -> Result<(), String> {
+    let current = find_item(&state, &id).await?;
+    let new_loai = match loai {
+        Some(l) if CUSTOM_LOAI.contains(&current.loai.as_str()) => {
+            if !CUSTOM_LOAI.contains(&l.as_str()) {
+                return Err("Loại mục không hợp lệ".into());
+            }
+            l
+        }
+        _ => current.loai.clone(),
+    };
+    let ten = ten.trim().to_string();
+    if ten.is_empty() {
+        return Err("Tên không được để trống".into());
+    }
+
+    let (path, args, cwd, browser) = if CUSTOM_LOAI.contains(&new_loai.as_str()) {
+        validate_custom(&new_loai, &duong_dan, &tham_so, &thu_muc_lam_viec, &trinh_duyet)?
+    } else {
+        let p = duong_dan.trim().trim_matches('"').to_string();
+        if p.is_empty() {
+            return Err("Đường dẫn không được để trống".into());
+        }
+        (p, String::new(), String::new(), String::new())
+    };
+
+    // Icon: chỉ trích lại khi nguồn icon đổi và icon hiện tại không phải icon tuỳ chỉnh.
+    let new_src = icon_source(&new_loai, &path, &browser);
+    let src_changed = new_src != icon_source(&current.loai, &current.duong_dan, &current.trinh_duyet);
+    let new_icon = if src_changed && !current.icon_cache.starts_with("custom-") {
+        extract_icon_and_name(&state, new_src).await?.0
+    } else {
+        None
+    };
+
+    {
+        let mut data = state.data.write().await;
+        let item = data
+            .muc
+            .iter_mut()
+            .find(|i| i.id == id)
+            .ok_or_else(|| "Không tìm thấy ứng dụng".to_string())?;
+        item.ten = ten;
+        item.duong_dan = path;
+        item.loai = new_loai;
+        item.tham_so = args;
+        item.thu_muc_lam_viec = cwd;
+        item.trinh_duyet = browser;
+        item.an_console = an_console;
+        item.ton_tai = crate::core::data_service::path_is_valid(&item.duong_dan);
+        if src_changed && !item.icon_cache.starts_with("custom-") {
+            item.icon_cache = new_icon.unwrap_or_default();
+        }
+    }
+    state.logger.info(&format!("Sửa chi tiết mục ID: {}", id));
+    state.save().await
+}
+
+/// Danh sách trình duyệt đã cài (từ registry).
+#[tauri::command]
+pub async fn detect_browsers() -> Result<Vec<crate::core::browsers::Browser>, String> {
+    tauri::async_runtime::spawn_blocking(crate::core::browsers::detect_browsers_blocking)
+        .await
+        .map_err(|e| format!("Lỗi khi dò trình duyệt: {}", e))
+}
+
+/// Quét Desktop + Start Menu, trả ứng viên chưa có trong menu. Chỉ đọc.
+#[tauri::command]
+pub async fn scan_shortcuts(
+    state: State<'_, Arc<AppState>>,
+) -> Result<Vec<crate::core::scanner::Candidate>, String> {
+    let existing: Vec<String> = {
+        let data = state.data.read().await;
+        data.muc.iter().map(|i| i.duong_dan.clone()).collect()
+    };
+    let result = tauri::async_runtime::spawn_blocking(move || crate::core::scanner::scan_blocking(&existing))
+        .await
+        .map_err(|e| format!("Lỗi khi quét máy: {}", e))?;
+    state.logger.info(&format!("Quét Desktop/Start Menu: {} ứng viên", result.len()));
+    Ok(result)
 }
 
 #[cfg(test)]

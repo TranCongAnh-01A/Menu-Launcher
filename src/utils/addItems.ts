@@ -22,12 +22,16 @@ export interface AddItemsOutcome {
 export async function addItemsToGroup(
   paths: string[],
   groupId: string,
-  confirm: ConfirmFn
+  confirm: ConfirmFn,
+  onProgress?: (done: number, total: number) => void
 ): Promise<AddItemsOutcome> {
   const outcome: AddItemsOutcome = { successCount: 0, skipped: [], errors: [] };
 
+  let done = 0;
   for (const rawPath of paths) {
     const path = rawPath.trim();
+    done++;
+    onProgress?.(done, paths.length);
     if (!path) continue;
 
     try {

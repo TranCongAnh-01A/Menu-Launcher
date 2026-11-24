@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Plus, FileArrowUp } from '@phosphor-icons/react';
+import { X, Plus, FileArrowUp, MagnifyingGlass } from '@phosphor-icons/react';
 
-import { addGroup, getAllGroups, Group } from '../../api';
+import { addGroup, addCustomItem, getAllGroups, Group } from '../../api';
+import { ItemDetailsForm, ItemFormValue, EMPTY_FORM } from './ItemDetailsForm';
 import { useNotification } from '../../context/NotificationContext';
 import { addItemsToGroup, summarizeAddOutcome } from '../../utils/addItems';
 
@@ -11,11 +12,15 @@ interface AddItemModalProps {
   onClose: () => void;
   onSuccess?: () => void;
   initialGroupId?: string;
+  /** Mở hộp thoại quét Desktop / Start Menu. */
+  onScan?: () => void;
 }
 
 import { open } from '@tauri-apps/plugin-dialog';
 
-export function AddItemModal({ isOpen, onClose, onSuccess, initialGroupId }: AddItemModalProps) {
+export function AddItemModal({ isOpen, onClose, onSuccess, initialGroupId, onScan }: AddItemModalProps) {
+  const [mode, setMode] = useState<'basic' | 'advanced'>('basic');
+  const [form, setForm] = useState<ItemFormValue>(EMPTY_FORM);
   const [isCreatingGroup, setIsCreatingGroup] = useState(false);
   const [groups, setGroups] = useState<Group[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -66,7 +71,7 @@ export function AddItemModal({ isOpen, onClose, onSuccess, initialGroupId }: Add
   };
 
   const handleSubmit = async () => {
-    if (itemPaths.length === 0) return;
+    if (mode === 'basic' ? itemPaths.length === 0 : !form.duong_dan.trim()) return;
     setIsSubmitting(true);
     try {
       let finalGroupId = selectedGroupId;
@@ -83,11 +88,23 @@ export function AddItemModal({ isOpen, onClose, onSuccess, initialGroupId }: Add
         }
       }
 
-      const outcome = await addItemsToGroup(itemPaths, finalGroupId, confirm);
+      let outcome;
+      if (mode === 'advanced') {
+        // Lỗi validate (tệp không tồn tại...) được ném ra và hiện qua toast ở catch.
+        const r = await addCustomItem(form, finalGroupId);
+        outcome = {
+          successCount: r.trang_thai === 'added' || r.trang_thai === 'moved_orphan' ? 1 : 0,
+          skipped: r.trang_thai === 'already_exists' ? [form.duong_dan] : [],
+          errors: [] as string[],
+        };
+      } else {
+        outcome = await addItemsToGroup(itemPaths, finalGroupId, confirm);
+      }
 
       if (outcome.successCount > 0) {
         createdGroupRef.current = null;
         setItemPaths([]);
+        setForm(EMPTY_FORM);
         setNewGroupName('');
         setIsCreatingGroup(false);
         setSelectedGroupId(initialGroupId || 'grp-default');
@@ -118,7 +135,25 @@ export function AddItemModal({ isOpen, onClose, onSuccess, initialGroupId }: Add
         </div>
 
         <div className="custom-scrollbar max-h-[60vh] space-y-5 overflow-y-auto p-6">
+          <div className="flex gap-1 rounded-xl border border-border/60 bg-card/60 p-1">
+            {([['basic', 'Thông thường'], ['advanced', 'Nâng cao (Lệnh / Script / Link)']] as const).map(([m, label]) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => setMode(m)}
+                className={`flex-1 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all ${
+                  mode === m ? 'bg-primary text-on-primary shadow-sm' : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {mode === 'advanced' && <ItemDetailsForm value={form} onChange={setForm} />}
+
           {/* File Selection */}
+          {mode === 'basic' && (
           <div>
             <label className="mb-2 block text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
               Tệp / Đường dẫn
@@ -144,6 +179,7 @@ export function AddItemModal({ isOpen, onClose, onSuccess, initialGroupId }: Add
               </div>
             )}
           </div>
+          )}
 
           {/* Group Selection */}
           <div>
@@ -195,13 +231,23 @@ export function AddItemModal({ isOpen, onClose, onSuccess, initialGroupId }: Add
           </div>
         </div>
 
-        <div className="flex justify-end gap-3 border-t border-border px-6 py-4">
+        <div className="flex items-center justify-end gap-3 border-t border-border px-6 py-4">
+          {onScan && (
+            <button
+              onClick={onScan}
+              className="btn-ghost mr-auto flex items-center gap-1.5 border border-border/80"
+              title="Quét Desktop và Start Menu để gợi ý ứng dụng"
+            >
+              <MagnifyingGlass size={15} weight="regular" />
+              Quét máy
+            </button>
+          )}
           <button onClick={onClose} className="btn-ghost">
             Hủy bỏ
           </button>
           <button
             onClick={handleSubmit}
-            disabled={isSubmitting || itemPaths.length === 0}
+            disabled={isSubmitting || (mode === 'basic' ? itemPaths.length === 0 : !form.duong_dan.trim())}
             className="btn-primary"
           >
             {isSubmitting ? 'Đang xử lý...' : 'Thêm vào Menu'}

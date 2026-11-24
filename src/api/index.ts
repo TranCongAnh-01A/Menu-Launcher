@@ -340,3 +340,98 @@ export async function resetItemUsage(id: string): Promise<void> {
     throw e;
   }
 }
+
+// === LOẠI MỤC NÂNG CAO + QUÉT MÁY ===
+export interface CustomItemInput {
+  ten: string;
+  loai: 'lenh' | 'script' | 'link';
+  duong_dan: string;
+  tham_so: string;
+  thu_muc_lam_viec: string;
+  trinh_duyet: string;
+  an_console: boolean;
+}
+
+/** Thêm mục Lệnh / Script / Link web. Lỗi validate (tệp không tồn tại...) được ném ra. */
+export async function addCustomItem(input: CustomItemInput, nhomId: string): Promise<AddItemResult> {
+  try {
+    return await invoke<AddItemResult>('add_custom_item', {
+      ten: input.ten,
+      loai: input.loai,
+      duongDan: input.duong_dan,
+      thamSo: input.tham_so,
+      thuMucLamViec: input.thu_muc_lam_viec,
+      trinhDuyet: input.trinh_duyet,
+      anConsole: input.an_console,
+      nhomId,
+    });
+  } catch (e) {
+    console.error('Error in addCustomItem:', e);
+    if (window.__TAURI_INTERNALS__ === undefined) return { trang_thai: 'added' };
+    throw e;
+  }
+}
+
+export interface ItemDetailsInput {
+  ten: string;
+  loai?: string;
+  duong_dan: string;
+  tham_so: string;
+  thu_muc_lam_viec: string;
+  trinh_duyet: string;
+  an_console: boolean;
+}
+
+/** Sửa chi tiết một mục. */
+export async function updateItemDetails(id: string, input: ItemDetailsInput): Promise<void> {
+  try {
+    await invoke('update_item_details', {
+      id,
+      ten: input.ten,
+      duongDan: input.duong_dan,
+      thamSo: input.tham_so,
+      thuMucLamViec: input.thu_muc_lam_viec,
+      trinhDuyet: input.trinh_duyet,
+      anConsole: input.an_console,
+      loai: input.loai ?? null,
+    });
+  } catch (e) {
+    console.error('Error in updateItemDetails:', e);
+    if (window.__TAURI_INTERNALS__ === undefined) return;
+    throw e;
+  }
+}
+
+export interface BrowserInfo {
+  ten: string;
+  duong_dan: string;
+}
+
+/** Trình duyệt đã cài (registry). */
+export async function detectBrowsers(): Promise<BrowserInfo[]> {
+  try {
+    return await invoke<BrowserInfo[]>('detect_browsers');
+  } catch (e) {
+    console.error('Error in detectBrowsers:', e);
+    if (window.__TAURI_INTERNALS__ === undefined) return [];
+    throw e;
+  }
+}
+
+export interface ScanCandidate {
+  ten: string;
+  duong_dan: string;
+  nguon: 'desktop' | 'startmenu';
+  thu_muc_con: string;
+}
+
+/** Quét Desktop + Start Menu (chỉ đọc). */
+export async function scanShortcuts(): Promise<ScanCandidate[]> {
+  try {
+    return await invoke<ScanCandidate[]>('scan_shortcuts');
+  } catch (e) {
+    console.error('Error in scanShortcuts:', e);
+    if (window.__TAURI_INTERNALS__ === undefined) return [];
+    throw e;
+  }
+}

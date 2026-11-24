@@ -3,6 +3,16 @@ import { CSS } from '@dnd-kit/utilities';
 import { Trash, WarningCircle } from '@phosphor-icons/react';
 import { Item } from '../../api';
 
+/** Huy hiệu nhỏ cho mục Lệnh / Script. */
+function TypeBadge({ loai }: { loai: string }) {
+  if (loai !== 'lenh' && loai !== 'script') return null;
+  return (
+    <span className="flex-shrink-0 rounded bg-primary/15 px-1 py-px font-mono text-[9px] font-semibold uppercase leading-none text-primary [text-shadow:none]">
+      {loai === 'lenh' ? 'Lệnh' : 'Script'}
+    </span>
+  );
+}
+
 const MISSING_HINT = 'Tệp không còn tồn tại trên máy';
 
 /** Click lần 2 trở đi (detail > 1): không để trình duyệt bôi chọn chữ, nhưng vẫn cho copy ở nơi khác. */
@@ -112,6 +122,7 @@ export function SortableListCard({
                 <WarningCircle size={14} weight="fill" className="flex-shrink-0 text-destructive" />
               )}
               <span className="truncate">{item.ten}</span>
+              <TypeBadge loai={item.loai} />
             </p>
             <p
               className={`mt-0.5 truncate font-mono text-[11px] ${
@@ -246,6 +257,7 @@ export function SortableGridCard({
           <WarningCircle size={13} weight="fill" className="flex-shrink-0 text-destructive" />
         )}
         <span className="truncate">{item.ten}</span>
+        <TypeBadge loai={item.loai} />
       </p>
     </div>
   );

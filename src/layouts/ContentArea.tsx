@@ -11,9 +11,11 @@ import { searchItems } from '../utils/search';
 import { HAY_DUNG_ID, GAN_DAY_ID, isVirtualGroup, topUsed, recentlyUsed, realGroupOrDefault } from '../utils/virtualGroups';
 
 const AddItemModal = lazy(() => import('../features/ItemManager/AddItemModal').then((m) => ({ default: m.AddItemModal })));
+const ScanShortcutsModal = lazy(() => import('../features/ItemManager/ScanShortcutsModal').then((m) => ({ default: m.ScanShortcutsModal })));
 
 export function ContentArea() {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [isScanOpen, setIsScanOpen] = useState(false);
   const [isLaunchingAll, setIsLaunchingAll] = useState(false);
   const { showToast } = useNotification();
   const { groups, items, activeGroupId, activeGroup, refresh } = useLauncherData();
@@ -164,6 +166,19 @@ export function ContentArea() {
         <AddItemModal
           isOpen={isAddModalOpen}
           onClose={() => setIsAddModalOpen(false)}
+          onSuccess={refresh}
+          initialGroupId={realGroupOrDefault(activeGroupId)}
+          onScan={() => {
+            setIsAddModalOpen(false);
+            setIsScanOpen(true);
+          }}
+        />
+      </LazyMount>
+
+      <LazyMount open={isScanOpen}>
+        <ScanShortcutsModal
+          isOpen={isScanOpen}
+          onClose={() => setIsScanOpen(false)}
           onSuccess={refresh}
           initialGroupId={realGroupOrDefault(activeGroupId)}
         />
