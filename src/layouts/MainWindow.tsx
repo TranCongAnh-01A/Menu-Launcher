@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef, lazy } from 'react';
+import { realGroupOrDefault } from '../utils/virtualGroups';
 import { DownloadSimple } from '@phosphor-icons/react';
 import { Sidebar } from './Sidebar';
 import { ContentArea } from './ContentArea';
@@ -182,7 +183,7 @@ export function MainWindow() {
           if (paths.length === 0) return;
 
           const savedGroupId = localStorage.getItem('app_active_group_id');
-          const targetGroupId = !savedGroupId || savedGroupId === 'tatca' ? 'grp-default' : savedGroupId;
+          const targetGroupId = realGroupOrDefault(savedGroupId);
 
           const outcome = await addItemsToGroup(paths, targetGroupId, confirm);
 

@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, ReactNode } from 'react';
 import { getAllGroups, getAllItems, Group, Item } from '../api';
 import { useNotification } from './NotificationContext';
+import { HAY_DUNG_ID, GAN_DAY_ID, isVirtualGroup } from '../utils/virtualGroups';
 
 interface LauncherDataValue {
   groups: Group[];
@@ -38,7 +39,7 @@ export function LauncherDataProvider({ children }: { children: ReactNode }) {
 
       // Nhóm đang chọn bị xóa thì quay về "Tất cả"
       setActiveGroupId((current) => {
-        if (current !== 'tatca' && !gData.some((g) => g.id === current)) {
+        if (current !== 'tatca' && !isVirtualGroup(current) && !gData.some((g) => g.id === current)) {
           localStorage.setItem('app_active_group_id', 'tatca');
           return 'tatca';
         }
@@ -68,6 +69,8 @@ export function LauncherDataProvider({ children }: { children: ReactNode }) {
 
   const activeGroup = useMemo(() => {
     if (activeGroupId === 'tatca') return { id: 'tatca', ten: 'Tất cả' };
+    if (activeGroupId === HAY_DUNG_ID) return { id: HAY_DUNG_ID, ten: 'Hay dùng' };
+    if (activeGroupId === GAN_DAY_ID) return { id: GAN_DAY_ID, ten: 'Gần đây' };
     if (activeGroupId === 'grp-default') return defaultGroup || { id: 'grp-default', ten: 'Khác' };
     return groups.find((g) => g.id === activeGroupId) || { id: 'tatca', ten: 'Tất cả' };
   }, [activeGroupId, defaultGroup, groups]);

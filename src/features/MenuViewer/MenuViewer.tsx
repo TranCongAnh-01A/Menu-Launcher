@@ -32,7 +32,8 @@ import {
   // WarningCircle,
 } from '@phosphor-icons/react';
 
-import { Item, Group, openItem, deleteItem, restoreItem, launchItems, reorderItems, moveItemToGroup } from '../../api';
+import { isVirtualGroup } from '../../utils/virtualGroups';
+import { Item, Group, resetItemUsage, openItem, deleteItem, restoreItem, launchItems, reorderItems, moveItemToGroup } from '../../api';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { useNotification } from '../../context/NotificationContext';
 import { summarizeLaunchResult } from '../../utils/launch';
@@ -94,7 +95,10 @@ export function MenuViewer({ items, groups, activeGroupId, viewMode = 'grid', se
   };
   const { showActionToast, showToast } = useNotification();
 
-  const sortDisabled = !!searchTerm?.trim();
+  const isSearching = !!searchTerm?.trim();
+  /** Hay dùng / Gần đây: danh sách tự xếp, không có ô "Thêm mới". */
+  const isVirtualView = !!activeGroupId && isVirtualGroup(activeGroupId);
+  const sortDisabled = isSearching || isVirtualView;
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
   );
@@ -138,7 +142,8 @@ export function MenuViewer({ items, groups, activeGroupId, viewMode = 'grid', se
     const rows: RowData[] = [];
     const isList = viewMode === 'list';
 
-    if (activeGroupId === 'tatca' && groups && groups.length > 0) {
+    // Đang tìm kiếm: kết quả đã xếp hạng, hiển thị phẳng (không gom theo nhóm).
+    if (activeGroupId === 'tatca' && !isSearching && groups && groups.length > 0) {
       // Nhóm mặc định (Khác) hoặc các item chưa được phân nhóm hợp lệ
       const customGroupIds = new Set(groups.filter(g => g.id !== 'grp-default').map(g => g.id));
       const defaultGroupItems = localItems.filter(i => i.nhom_id === 'grp-default' || !customGroupIds.has(i.nhom_id));
@@ -188,16 +193,18 @@ export function MenuViewer({ items, groups, activeGroupId, viewMode = 'grid', se
         }
       }
     } else {
-      // Xem một nhóm cụ thể
+      // Xem một nhóm cụ thể (hoặc kết quả tìm kiếm / nhóm ảo)
+      const addNew = !isVirtualView;
+      const offset = addNew ? 1 : 0;
       if (isList) {
-        rows.push({ type: 'items', hasAddNew: true, items: [] });
+        if (addNew) rows.push({ type: 'items', hasAddNew: true, items: [] });
         localItems.forEach(item => {
           rows.push({ type: 'items', hasAddNew: false, items: [item] });
         });
       } else {
-        const totalRowsCount = Math.ceil((localItems.length + 1) / columns);
+        const totalRowsCount = Math.ceil((localItems.length + offset) / columns);
         for (let r = 0; r < totalRowsCount; r++) {
-          const startIndex = r * columns - 1;
+          const startIndex = r * columns - offset;
           const rowItems = [];
           for (let i = 0; i < columns; i++) {
             const idx = startIndex + i;
@@ -205,12 +212,12 @@ export function MenuViewer({ items, groups, activeGroupId, viewMode = 'grid', se
               rowItems.push(localItems[idx]);
             }
           }
-          rows.push({ type: 'items', hasAddNew: r === 0, items: rowItems });
+          rows.push({ type: 'items', hasAddNew: addNew && r === 0, items: rowItems });
         }
       }
     }
     return rows;
-  }, [localItems, groups, activeGroupId, columns, viewMode]);
+  }, [localItems, groups, activeGroupId, columns, viewMode, isSearching, isVirtualView]);
 
   /**
    * Danh sách phẳng để điều hướng bằng bàn phím, dẫn xuất từ chính `rowsData`
@@ -413,6 +420,8 @@ export function MenuViewer({ items, groups, activeGroupId, viewMode = 'grid', se
     setLaunchingIds((prev) => [...prev, item.id]);
     try {
       await openItem(item.id);
+      // Backend vừa ghi nhận lượt mở -> tải lại để Hay dùng / Gần đây cập nhật.
+      window.dispatchEvent(new CustomEvent('app-items-changed'));
     } catch (e) {
       console.error(e);
       showToast(String(e), 'error');
@@ -545,6 +554,17 @@ export function MenuViewer({ items, groups, activeGroupId, viewMode = 'grid', se
     };
 
 
+  const handleResetUsage = async (item: Item) => {
+    try {
+      await resetItemUsage(item.id);
+      showToast(`Đã xoá "${item.ten}" khỏi lịch sử`, 'success');
+      window.dispatchEvent(new CustomEvent('app-items-changed'));
+    } catch (e) {
+      console.error(e);
+      showToast(`Không xoá được lịch sử: ${String(e)}`, 'error');
+    }
+  };
+
   const handleLaunchGroup = async (groupId: string, groupTitle: string) => {
     // Chỉ chạy các mục đang hiển thị của nhóm — `items` đã được lọc theo tìm kiếm.
     const targetIds = items.filter((i) => i.nhom_id === groupId).map((i) => i.id);
@@ -554,6 +574,7 @@ export function MenuViewer({ items, groups, activeGroupId, viewMode = 'grid', se
     try {
       const summary = summarizeLaunchResult(await launchItems(targetIds));
       showToast(summary.message, summary.type);
+      window.dispatchEvent(new CustomEvent('app-items-changed'));
     } catch (e) {
       console.error(e);
       showToast(`Lỗi khi mở nhóm: ${String(e)}`, 'error');
@@ -765,6 +786,7 @@ export function MenuViewer({ items, groups, activeGroupId, viewMode = 'grid', se
           onRename={(item) => setRenameModalItem(item)}
           onChangeIcon={handleChangeIcon}
           onResetIcon={handleResetIcon}
+          onResetUsage={handleResetUsage}
         />
       )}
 

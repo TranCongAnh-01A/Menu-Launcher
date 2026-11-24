@@ -9,6 +9,7 @@ import {
   CaretRight,
   ImageSquare,
   ArrowCounterClockwise,
+  ClockCounterClockwise,
 } from '@phosphor-icons/react';
 import { Item, Group, openItemAsAdmin, showInFolder, moveItemToGroup } from '../../api';
 
@@ -28,6 +29,7 @@ interface ItemContextMenuProps {
   onRename: (item: Item) => void;
   onChangeIcon: (item: Item) => void;
   onResetIcon: (item: Item) => void;
+  onResetUsage: (item: Item) => void;
 }
 
 /** Menu chuột phải của một mục (portal ra body). */
@@ -41,6 +43,7 @@ export function ItemContextMenu({
   onRename,
   onChangeIcon,
   onResetIcon,
+  onResetUsage,
 }: ItemContextMenuProps) {
   return createPortal(
 
@@ -185,6 +188,20 @@ export function ItemContextMenu({
                   })}
                 </div>
               </div>
+            )}
+
+            {(contextMenu.item.so_lan_mo > 0 || contextMenu.item.lan_mo_cuoi != null) && (
+              <button
+                onClick={() => {
+                  const item = contextMenu.item;
+                  onClose();
+                  onResetUsage(item);
+                }}
+                className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-foreground hover:bg-muted/80 transition-colors"
+              >
+                <ClockCounterClockwise size={15} weight="regular" className="text-muted-foreground" />
+                <span>Xoá khỏi lịch sử</span>
+              </button>
             )}
 
             <div className="my-1 h-[1px] bg-border/60" />

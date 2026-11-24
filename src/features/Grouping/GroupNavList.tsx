@@ -1,8 +1,9 @@
 import { useEffect, useState, lazy } from 'react';
-import { SquaresFour, FolderOpen, Plus, SlidersHorizontal } from '@phosphor-icons/react';
+import { SquaresFour, FolderOpen, Plus, SlidersHorizontal, Fire, ClockCounterClockwise } from '@phosphor-icons/react';
 import { useLauncherData } from '../../context/LauncherDataContext';
 import { CreateGroupModal } from './CreateGroupModal';
 import { LazyMount } from '../../components/LazyMount';
+import { HAY_DUNG_ID, GAN_DAY_ID, topUsed, recentlyUsed } from '../../utils/virtualGroups';
 
 const GroupManagerModal = lazy(() => import('./GroupManagerModal').then((m) => ({ default: m.GroupManagerModal })));
 
@@ -18,9 +19,16 @@ export function GroupNavList() {
 
   const countOf = (groupId: string) => items.filter((i) => i.nhom_id === groupId).length;
 
-  const renderRow = (id: string, label: string, count: number, droppable: boolean, isAll = false) => {
+  const renderRow = (
+    id: string,
+    label: string,
+    count: number,
+    droppable: boolean,
+    isAll = false,
+    IconOverride?: typeof FolderOpen
+  ) => {
     const isActive = activeGroupId === id;
-    const Icon = isAll ? SquaresFour : FolderOpen;
+    const Icon = IconOverride ?? (isAll ? SquaresFour : FolderOpen);
     return (
       <button
         key={id}
@@ -67,6 +75,8 @@ export function GroupNavList() {
 
       <div className="custom-scrollbar flex-1 space-y-1 overflow-y-auto px-3 pb-3">
         {renderRow('tatca', 'Tất cả', items.length, false, true)}
+        {renderRow(HAY_DUNG_ID, 'Hay dùng', topUsed(items).length, false, false, Fire)}
+        {renderRow(GAN_DAY_ID, 'Gần đây', recentlyUsed(items).length, false, false, ClockCounterClockwise)}
         {defaultGroup && renderRow('grp-default', defaultGroup.ten || 'Mặc định', countOf('grp-default'), true)}
         {customGroups.map((g) => renderRow(g.id, g.ten, countOf(g.id), true))}
       </div>

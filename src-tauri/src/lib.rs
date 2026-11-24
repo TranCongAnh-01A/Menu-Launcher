@@ -291,7 +291,8 @@ pub fn run() {
             register_global_shortcut,
             unregister_global_shortcut,
             set_item_icon,
-            reset_item_icon
+            reset_item_icon,
+            reset_item_usage
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

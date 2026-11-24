@@ -33,25 +33,90 @@ pub struct Item {
     pub icon_cache: String,
     pub nhom_id: String,
     pub ton_tai: bool,
+    /// Số lần đã mở (dùng cho "Hay dùng" và xếp hạng tìm kiếm).
+    #[serde(default)]
+    pub so_lan_mo: u32,
+    /// Lần mở gần nhất, unix ms (dùng cho "Gần đây").
+    #[serde(default)]
+    pub lan_mo_cuoi: Option<i64>,
+    /// Tham số dòng lệnh (loại `lenh` / `script`).
+    #[serde(default)]
+    pub tham_so: String,
+    /// Thư mục làm việc; rỗng = thư mục chứa file.
+    #[serde(default)]
+    pub thu_muc_lam_viec: String,
+    /// Đường dẫn exe trình duyệt cho link web; rỗng = trình duyệt mặc định.
+    #[serde(default)]
+    pub trinh_duyet: String,
+    /// Ẩn cửa sổ console khi chạy script / lệnh.
+    #[serde(default)]
+    pub an_console: bool,
 }
+
+impl Item {
+    /// Mục mới với các trường mở rộng ở giá trị mặc định.
+    pub fn new(
+        id: String,
+        ten: String,
+        duong_dan: String,
+        loai: String,
+        icon_cache: String,
+        nhom_id: String,
+    ) -> Self {
+        Self {
+            id,
+            ten,
+            duong_dan,
+            loai,
+            icon_cache,
+            nhom_id,
+            ton_tai: true,
+            so_lan_mo: 0,
+            lan_mo_cuoi: None,
+            tham_so: String::new(),
+            thu_muc_lam_viec: String::new(),
+            trinh_duyet: String::new(),
+            an_console: false,
+        }
+    }
+}
+
+/// Danh sách mở nhanh nhiều mục theo thứ tự, có độ trễ giữa các app.
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct Workspace {
+    pub id: String,
+    pub ten: String,
+    #[serde(default)]
+    pub thu_tu: i32,
+    #[serde(default)]
+    pub muc_ids: Vec<String>,
+    #[serde(default)]
+    pub do_tre_ms: u32,
+}
+
+/// Phiên bản schema hiện tại của `menu_data.json`.
+pub const SCHEMA_VERSION: i32 = 4;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct MenuData {
     pub phien_ban_schema: i32,
     pub nhom_danh_sach: Vec<Group>,
     pub muc: Vec<Item>,
+    #[serde(default)]
+    pub workspaces: Vec<Workspace>,
 }
 
 impl Default for MenuData {
     fn default() -> Self {
         Self {
-            phien_ban_schema: 3,
+            phien_ban_schema: SCHEMA_VERSION,
             nhom_danh_sach: vec![Group {
                 id: "grp-default".to_string(),
                 ten: "Khác".to_string(),
                 thu_tu: 0,
             }],
             muc: vec![],
+            workspaces: vec![],
         }
     }
 }
@@ -154,6 +219,12 @@ impl AppState {
                     cleaned = true;
                 }
             }
+        }
+
+        // Nâng schema cũ lên bản hiện tại (các field mới đã có giá trị mặc định).
+        if data.phien_ban_schema < SCHEMA_VERSION {
+            data.phien_ban_schema = SCHEMA_VERSION;
+            cleaned = true;
         }
 
         // Mục mồ côi đã được gán về grp-default: đảm bảo nhóm này tồn tại.
@@ -515,7 +586,45 @@ mod tests {
             icon_cache: icon_cache.to_string(),
             nhom_id: "grp-default".to_string(),
             ton_tai: true,
+            so_lan_mo: 0,
+            lan_mo_cuoi: None,
+            tham_so: String::new(),
+            thu_muc_lam_viec: String::new(),
+            trinh_duyet: String::new(),
+            an_console: false,
         }
+    }
+
+    #[test]
+    fn loads_old_schema_3_json_with_defaults() {
+        let old = r#"{
+            "phien_ban_schema": 3,
+            "nhom_danh_sach": [{"id":"grp-default","ten":"Khác","thu_tu":0}],
+            "muc": [{"id":"i1","ten":"A","duong_dan":"C:/a.exe","loai":"exe",
+                     "icon_cache":"","nhom_id":"grp-default","ton_tai":true}]
+        }"#;
+        let d: MenuData = serde_json::from_str(old).unwrap();
+        assert_eq!(d.muc[0].so_lan_mo, 0);
+        assert_eq!(d.muc[0].lan_mo_cuoi, None);
+        assert!(d.muc[0].tham_so.is_empty() && d.muc[0].trinh_duyet.is_empty());
+        assert!(!d.muc[0].an_console);
+        assert!(d.workspaces.is_empty());
+    }
+
+    #[tokio::test]
+    async fn old_schema_is_upgraded_on_startup() {
+        let root = temp_root();
+        let path = root.join("DesktopMenuLauncher").join("menu_data.json");
+        std::fs::write(
+            &path,
+            r#"{"phien_ban_schema":3,"nhom_danh_sach":[{"id":"grp-default","ten":"Khác","thu_tu":0}],"muc":[]}"#,
+        )
+        .unwrap();
+        let state = AppState::new(root).await.unwrap();
+        assert_eq!(state.data.read().await.phien_ban_schema, SCHEMA_VERSION);
+        let on_disk: MenuData =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(on_disk.phien_ban_schema, 4);
     }
 
     fn quarantine_files(root: &Path) -> Vec<PathBuf> {

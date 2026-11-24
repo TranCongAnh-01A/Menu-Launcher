@@ -15,6 +15,27 @@ export interface Item {
   icon_cache: string;
   nhom_id: string;
   ton_tai: boolean;
+  /** Số lần đã mở (Hay dùng + xếp hạng tìm kiếm). */
+  so_lan_mo: number;
+  /** Lần mở gần nhất, unix ms. */
+  lan_mo_cuoi: number | null;
+  /** Tham số dòng lệnh (loai = 'lenh' | 'script'). */
+  tham_so: string;
+  /** Thư mục làm việc; rỗng = thư mục chứa file. */
+  thu_muc_lam_viec: string;
+  /** Đường dẫn exe trình duyệt cho link web; rỗng = mặc định. */
+  trinh_duyet: string;
+  /** Ẩn cửa sổ console khi chạy. */
+  an_console: boolean;
+}
+
+/** Danh sách mở nhanh nhiều mục theo thứ tự, có độ trễ giữa các app. */
+export interface Workspace {
+  id: string;
+  ten: string;
+  thu_tu: number;
+  muc_ids: string[];
+  do_tre_ms: number;
 }
 
 // === GROUPS ===
@@ -304,6 +325,17 @@ export async function resetItemIcon(id: string): Promise<void> {
     await invoke('reset_item_icon', { id });
   } catch (e) {
     console.error('Error in resetItemIcon:', e);
+    if (window.__TAURI_INTERNALS__ === undefined) return;
+    throw e;
+  }
+}
+
+/** Xoá lịch sử sử dụng (số lần mở + lần mở cuối) của một mục. */
+export async function resetItemUsage(id: string): Promise<void> {
+  try {
+    await invoke('reset_item_usage', { id });
+  } catch (e) {
+    console.error('Error in resetItemUsage:', e);
     if (window.__TAURI_INTERNALS__ === undefined) return;
     throw e;
   }

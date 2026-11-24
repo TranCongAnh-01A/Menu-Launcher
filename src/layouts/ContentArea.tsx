@@ -7,6 +7,8 @@ import { useLauncherData } from '../context/LauncherDataContext';
 import { summarizeLaunchResult } from '../utils/launch';
 import { hasOpenOverlay, FOCUS_SEARCH_EVENT } from '../utils/overlay';
 import { LazyMount } from '../components/LazyMount';
+import { searchItems } from '../utils/search';
+import { HAY_DUNG_ID, GAN_DAY_ID, isVirtualGroup, topUsed, recentlyUsed, realGroupOrDefault } from '../utils/virtualGroups';
 
 const AddItemModal = lazy(() => import('../features/ItemManager/AddItemModal').then((m) => ({ default: m.AddItemModal })));
 
@@ -61,20 +63,18 @@ export function ContentArea() {
 
   const visibleItems = useMemo(() => {
     let list = items;
-    if (activeGroupId !== 'tatca') {
+    if (activeGroupId === HAY_DUNG_ID) list = topUsed(items);
+    else if (activeGroupId === GAN_DAY_ID) list = recentlyUsed(items);
+    else if (activeGroupId !== 'tatca') {
       list = list.filter((i) => i.nhom_id === activeGroupId);
     }
-    if (searchTerm.trim()) {
-      const q = searchTerm.toLowerCase();
-      list = list.filter(
-        (i) => i.ten.toLowerCase().includes(q) || i.duong_dan.toLowerCase().includes(q)
-      );
-    }
+    // Có từ khoá: trả về theo thứ tự xếp hạng (không theo nhóm).
+    if (searchTerm.trim()) list = searchItems(list, searchTerm);
     return list;
   }, [items, activeGroupId, searchTerm]);
 
   const handleLaunchAll = async () => {
-    if (activeGroupId === 'tatca' || visibleItems.length === 0) return;
+    if (activeGroupId === 'tatca' || isVirtualGroup(activeGroupId) || visibleItems.length === 0) return;
     setIsLaunchingAll(true);
     showToast(`Đang khởi chạy ${visibleItems.length} ứng dụng trong nhóm "${activeGroup.ten}"...`, 'info');
     try {
@@ -83,6 +83,7 @@ export function ContentArea() {
       const result = await launchItems(visibleItems.map((i) => i.id));
       const summary = summarizeLaunchResult(result);
       showToast(summary.message, summary.type);
+      refresh(); // cập nhật số lần mở
     } catch (e) {
       console.error(e);
       showToast(`Lỗi khi khởi chạy nhóm: ${String(e)}`, 'error');
@@ -112,7 +113,7 @@ export function ContentArea() {
         </div>
 
         <div className="flex items-center gap-2">
-          {activeGroupId !== 'tatca' && visibleItems.length > 0 && (
+          {activeGroupId !== 'tatca' && !isVirtualGroup(activeGroupId) && visibleItems.length > 0 && (
             <button
               onClick={handleLaunchAll}
               disabled={isLaunchingAll}
@@ -164,7 +165,7 @@ export function ContentArea() {
           isOpen={isAddModalOpen}
           onClose={() => setIsAddModalOpen(false)}
           onSuccess={refresh}
-          initialGroupId={activeGroupId === 'tatca' ? 'grp-default' : activeGroupId}
+          initialGroupId={realGroupOrDefault(activeGroupId)}
         />
       </LazyMount>
     </main>

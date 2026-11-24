@@ -160,15 +160,7 @@ pub async fn add_item(path: String, nhom_id: String, force_move: Option<bool>, s
         ITEM_COUNTER.fetch_add(1, Ordering::Relaxed)
     );
 
-    let new_item = Item {
-        id: unique_id,
-        ten,
-        duong_dan: trimmed_path,
-        loai,
-        icon_cache,
-        nhom_id,
-        ton_tai: true,
-    };
+    let new_item = Item::new(unique_id, ten, trimmed_path, loai, icon_cache, nhom_id);
     data.muc.push(new_item);
     drop(data); // Giải phóng write lock trước khi save (save sẽ acquire read lock)
     
@@ -275,6 +267,46 @@ async fn update_item_existence(state: &Arc<AppState>, id: &str, exists: bool) {
     }
 }
 
+/// Ghi nhận lượt mở cho các mục: tăng `so_lan_mo`, đặt `lan_mo_cuoi`, rồi lưu.
+/// Không bao giờ chặn việc mở — lỗi lưu chỉ được log. Dùng chung cho mọi đường
+/// mở mục (và để khay / workspace ở giai đoạn sau gọi lại).
+pub async fn record_launch(state: &Arc<AppState>, ids: &[String]) {
+    if ids.is_empty() {
+        return;
+    }
+    let now = chrono::Local::now().timestamp_millis();
+    {
+        let mut data = state.data.write().await;
+        for id in ids {
+            if let Some(item) = data.muc.iter_mut().find(|i| &i.id == id) {
+                item.so_lan_mo = item.so_lan_mo.saturating_add(1);
+                item.lan_mo_cuoi = Some(now);
+            }
+        }
+    }
+    if let Err(e) = state.save().await {
+        state
+            .logger
+            .warn(&format!("Không lưu được lượt mở: {}", e));
+    }
+}
+
+/// Xoá lịch sử sử dụng (số lần mở + lần mở cuối) của một mục.
+#[tauri::command]
+pub async fn reset_item_usage(id: String, state: State<'_, Arc<AppState>>) -> Result<(), String> {
+    {
+        let mut data = state.data.write().await;
+        let item = data
+            .muc
+            .iter_mut()
+            .find(|i| i.id == id)
+            .ok_or_else(|| "Không tìm thấy ứng dụng".to_string())?;
+        item.so_lan_mo = 0;
+        item.lan_mo_cuoi = None;
+    }
+    state.save().await
+}
+
 fn is_script(path_lower: &str) -> bool {
     path_lower.ends_with(".bat")
         || path_lower.ends_with(".ps1")
@@ -318,6 +350,7 @@ pub async fn open_item(id: String, state: State<'_, Arc<AppState>>) -> Result<()
 
     // Mục từng bị đánh dấu hỏng nhưng nay mở được → khôi phục trạng thái.
     update_item_existence(&state, &id, true).await;
+    record_launch(&state, std::slice::from_ref(&id)).await;
     Ok(())
 }
 
@@ -347,6 +380,7 @@ pub async fn open_item_as_admin(id: String, state: State<'_, Arc<AppState>>) -> 
     }
 
     update_item_existence(&state, &id, true).await;
+    record_launch(&state, std::slice::from_ref(&id)).await;
     Ok(())
 }
 
@@ -380,6 +414,7 @@ pub async fn launch_items(
         that_bai: Vec::new(),
     };
 
+    let mut launched_ids: Vec<String> = Vec::new();
     for (index, (id, ten, path)) in targets.iter().enumerate() {
         if index > 0 {
             tokio::time::sleep(tokio::time::Duration::from_millis(150)).await;
@@ -393,10 +428,13 @@ pub async fn launch_items(
 
         if launch_path(path).await {
             result.da_mo += 1;
+            launched_ids.push(id.clone());
         } else {
             result.that_bai.push(ten.clone());
         }
     }
+
+    record_launch(&state, &launched_ids).await;
 
     state.logger.info(&format!(
         "Khởi chạy đồng loạt: {} thành công, {} thất bại",
