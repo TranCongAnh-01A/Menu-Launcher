@@ -1,14 +1,43 @@
 import { useEffect, useState, lazy } from 'react';
-import { SquaresFour, FolderOpen, Plus, SlidersHorizontal, Fire, ClockCounterClockwise } from '@phosphor-icons/react';
+import { SquaresFour, FolderOpen, Plus, SlidersHorizontal, Fire, ClockCounterClockwise, Play, Rocket } from '@phosphor-icons/react';
+import { launchWorkspace } from '../../api';
+import { useNotification } from '../../context/NotificationContext';
+import { summarizeLaunchResult } from '../../utils/launch';
 import { useLauncherData } from '../../context/LauncherDataContext';
 import { CreateGroupModal } from './CreateGroupModal';
 import { LazyMount } from '../../components/LazyMount';
 import { HAY_DUNG_ID, GAN_DAY_ID, topUsed, recentlyUsed } from '../../utils/virtualGroups';
 
+const WorkspaceManagerModal = lazy(() => import('../Workspace/WorkspaceManagerModal').then((m) => ({ default: m.WorkspaceManagerModal })));
 const GroupManagerModal = lazy(() => import('./GroupManagerModal').then((m) => ({ default: m.GroupManagerModal })));
 
 export function GroupNavList() {
-  const { items, defaultGroup, customGroups, activeGroupId, selectGroup, refresh } = useLauncherData();
+  const { items, workspaces, defaultGroup, customGroups, activeGroupId, selectGroup, refresh } = useLauncherData();
+  const { showToast } = useNotification();
+  const [wsManagerOpen, setWsManagerOpen] = useState(false);
+  const [wsManagerInitial, setWsManagerInitial] = useState<string | null>(null);
+  const [runningWsId, setRunningWsId] = useState<string | null>(null);
+
+  const openWsManager = (id: string | null) => {
+    setWsManagerInitial(id);
+    setWsManagerOpen(true);
+  };
+
+  const handleRunWorkspace = async (id: string, ten: string) => {
+    if (runningWsId) return;
+    setRunningWsId(id);
+    showToast(`Đang chạy workspace "${ten}"...`, 'info');
+    try {
+      const summary = summarizeLaunchResult(await launchWorkspace(id));
+      showToast(summary.message, summary.type);
+      refresh(); // cập nhật số lần mở
+    } catch (e) {
+      console.error(e);
+      showToast(`Lỗi khi chạy workspace: ${String(e)}`, 'error');
+    } finally {
+      setRunningWsId(null);
+    }
+  };
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isManagerOpen, setIsManagerOpen] = useState(false);
 
@@ -79,9 +108,54 @@ export function GroupNavList() {
         {renderRow(GAN_DAY_ID, 'Gần đây', recentlyUsed(items).length, false, false, ClockCounterClockwise)}
         {defaultGroup && renderRow('grp-default', defaultGroup.ten || 'Mặc định', countOf('grp-default'), true)}
         {customGroups.map((g) => renderRow(g.id, g.ten, countOf(g.id), true))}
+
+        {/* Workspace: nút ▶ chạy tuần tự các mục, bấm tên để chỉnh sửa */}
+        <div className="flex items-center justify-between pb-0.5 pl-1 pr-0 pt-3">
+          <h3 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/60">Workspace</h3>
+          <button onClick={() => openWsManager(null)} className="icon-btn p-1.5" title="Quản lý workspace">
+            <SlidersHorizontal size={14} weight="regular" />
+          </button>
+        </div>
+        {workspaces.length === 0 && (
+          <button
+            onClick={() => openWsManager(null)}
+            className="flex w-full cursor-pointer items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs text-muted-foreground hover:bg-muted/80"
+          >
+            <Plus size={14} weight="bold" /> Tạo workspace
+          </button>
+        )}
+        {workspaces.map((w) => (
+          <div
+            key={w.id}
+            className="flex items-center gap-1 rounded-xl px-1 text-sm font-medium text-foreground/70 hover:bg-muted/80 hover:text-foreground"
+          >
+            <button
+              onClick={() => openWsManager(w.id)}
+              className="flex min-w-0 flex-1 cursor-pointer items-center gap-2.5 px-2 py-2 text-left"
+              title={`Chỉnh sửa "${w.ten}"`}
+            >
+              <Rocket size={16} className="flex-shrink-0" />
+              <span className="truncate">{w.ten}</span>
+              <span className="ml-auto flex-shrink-0 rounded-md bg-muted/80 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+                {w.muc_ids.length}
+              </span>
+            </button>
+            <button
+              onClick={() => handleRunWorkspace(w.id, w.ten)}
+              disabled={runningWsId !== null || w.muc_ids.length === 0}
+              className="icon-btn p-1.5 text-primary disabled:opacity-40"
+              title={`Chạy workspace "${w.ten}"`}
+            >
+              <Play size={14} weight="fill" className={runningWsId === w.id ? 'animate-pulse' : ''} />
+            </button>
+          </div>
+        ))}
       </div>
 
       <CreateGroupModal isOpen={isCreateOpen} onClose={() => setIsCreateOpen(false)} onSuccess={refresh} />
+      <LazyMount open={wsManagerOpen}>
+        <WorkspaceManagerModal isOpen={wsManagerOpen} initialId={wsManagerInitial} onClose={() => setWsManagerOpen(false)} />
+      </LazyMount>
       <LazyMount open={isManagerOpen}>
         <GroupManagerModal isOpen={isManagerOpen} onClose={() => setIsManagerOpen(false)} onSuccess={refresh} />
       </LazyMount>

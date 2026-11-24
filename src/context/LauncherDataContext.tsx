@@ -1,11 +1,12 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, ReactNode } from 'react';
-import { getAllGroups, getAllItems, Group, Item } from '../api';
+import { getAllGroups, getAllItems, getWorkspaces, Group, Item, Workspace } from '../api';
 import { useNotification } from './NotificationContext';
 import { HAY_DUNG_ID, GAN_DAY_ID, isVirtualGroup } from '../utils/virtualGroups';
 
 interface LauncherDataValue {
   groups: Group[];
   items: Item[];
+  workspaces: Workspace[];
   activeGroupId: string;
   activeGroup: { id: string; ten: string };
   defaultGroup: Group | undefined;
@@ -19,6 +20,7 @@ const LauncherDataContext = createContext<LauncherDataValue | undefined>(undefin
 export function LauncherDataProvider({ children }: { children: ReactNode }) {
   const [groups, setGroups] = useState<Group[]>([]);
   const [items, setItems] = useState<Item[]>([]);
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [activeGroupId, setActiveGroupId] = useState<string>(
     () => localStorage.getItem('app_active_group_id') || 'tatca'
   );
@@ -32,10 +34,11 @@ export function LauncherDataProvider({ children }: { children: ReactNode }) {
   const refresh = useCallback(async () => {
     const seq = ++refreshSeqRef.current;
     try {
-      const [gData, iData] = await Promise.all([getAllGroups(), getAllItems()]);
+      const [gData, iData, wData] = await Promise.all([getAllGroups(), getAllItems(), getWorkspaces()]);
       if (seq !== refreshSeqRef.current) return; // đã có lần refresh mới hơn
       setGroups(gData);
       setItems(iData);
+      setWorkspaces(wData);
 
       // Nhóm đang chọn bị xóa thì quay về "Tất cả"
       setActiveGroupId((current) => {
@@ -77,7 +80,7 @@ export function LauncherDataProvider({ children }: { children: ReactNode }) {
 
   return (
     <LauncherDataContext.Provider
-      value={{ groups, items, activeGroupId, activeGroup, defaultGroup, customGroups, selectGroup, refresh }}
+      value={{ groups, items, workspaces, activeGroupId, activeGroup, defaultGroup, customGroups, selectGroup, refresh }}
     >
       {children}
     </LauncherDataContext.Provider>

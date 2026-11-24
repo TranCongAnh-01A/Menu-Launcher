@@ -181,6 +181,8 @@ pub struct AppState {
     /// nguyên khối, nếu không hai lần lưu gần nhau dùng chung file `.tmp` và bản
     /// cũ có thể đè bản mới.
     save_lock: Mutex<()>,
+    /// Báo hiệu "dữ liệu vừa được lưu" — task nền dựng lại menu khay lắng nghe.
+    pub changed: tokio::sync::Notify,
 }
 
 impl AppState {
@@ -240,6 +242,7 @@ impl AppState {
             logger,
             last_backup: Mutex::new(None),
             save_lock: Mutex::new(()),
+            changed: tokio::sync::Notify::new(),
         });
 
         // Ghi lại ngay nếu vừa khôi phục từ backup hoặc vừa dọn mục mồ côi,
@@ -295,7 +298,12 @@ impl AppState {
         let mut last_err = String::new();
         for attempt in 0..5 {
             match fs::rename(&temp_path, &self.data_path).await {
-                Ok(()) => return Ok(()),
+                Ok(()) => {
+                    // notify_one lưu lại một "permit" nên không mất tín hiệu nếu
+                    // task khay đang bận dựng menu.
+                    self.changed.notify_one();
+                    return Ok(());
+                }
                 Err(e) => {
                     last_err = e.to_string();
                     if attempt < 4 {

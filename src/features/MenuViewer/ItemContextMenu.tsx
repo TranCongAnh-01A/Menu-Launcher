@@ -11,8 +11,10 @@ import {
   ArrowCounterClockwise,
   ClockCounterClockwise,
   Gear,
+  Rocket,
 } from '@phosphor-icons/react';
-import { Item, Group, openItemAsAdmin, showInFolder, moveItemToGroup } from '../../api';
+import { Item, Group, openItemAsAdmin, showInFolder, moveItemToGroup, updateWorkspace } from '../../api';
+import { useLauncherData } from '../../context/LauncherDataContext';
 
 export interface ItemContextMenuState {
   x: number;
@@ -48,6 +50,23 @@ export function ItemContextMenu({
   onResetIcon,
   onResetUsage,
 }: ItemContextMenuProps) {
+  const { workspaces } = useLauncherData();
+
+  const addToWorkspace = async (wsId: string) => {
+    const ws = workspaces.find((w) => w.id === wsId);
+    const item = contextMenu.item;
+    onClose();
+    if (!ws) return;
+    try {
+      await updateWorkspace(ws.id, ws.ten, [...ws.muc_ids, item.id], ws.do_tre_ms);
+      showToast(`Đã thêm "${item.ten}" vào workspace "${ws.ten}"`, 'success');
+      window.dispatchEvent(new CustomEvent('app-items-changed'));
+    } catch (e) {
+      console.error(e);
+      showToast(`Lỗi khi thêm vào workspace: ${String(e)}`, 'error');
+    }
+  };
+
   return createPortal(
 
           <div
@@ -198,6 +217,42 @@ export function ItemContextMenu({
                       >
                         <span className="truncate">{g.ten}</span>
                         {isCurrent && <span className="text-[10px] text-muted-foreground font-mono">(Hiện tại)</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Thêm vào workspace */}
+            {workspaces.length > 0 && (
+              <div className="relative group/submenu">
+                <div className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-foreground hover:bg-muted/80 transition-colors cursor-pointer">
+                  <div className="flex items-center gap-2.5">
+                    <Rocket size={15} weight="regular" className="text-muted-foreground" />
+                    <span>Thêm vào workspace</span>
+                  </div>
+                  <CaretRight size={12} weight="bold" className="text-muted-foreground" />
+                </div>
+
+                <div
+                  className={`hidden group-hover/submenu:block absolute top-0 min-w-[160px] rounded-xl border border-border bg-card/95 backdrop-blur-md p-1.5 shadow-modal animate-fade-in text-xs font-medium max-h-56 overflow-y-auto ${
+                    contextMenu.x > window.innerWidth - 380 ? 'right-full mr-1' : 'left-full ml-1'
+                  }`}
+                >
+                  {workspaces.map((w) => {
+                    const already = w.muc_ids.includes(contextMenu.item.id);
+                    return (
+                      <button
+                        key={w.id}
+                        disabled={already}
+                        onClick={() => addToWorkspace(w.id)}
+                        className={`flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 text-left transition-colors ${
+                          already ? 'opacity-40 cursor-not-allowed text-muted-foreground' : 'text-foreground hover:bg-muted/80'
+                        }`}
+                      >
+                        <span className="truncate">{w.ten}</span>
+                        {already && <span className="text-[10px] text-muted-foreground font-mono">(Đã có)</span>}
                       </button>
                     );
                   })}

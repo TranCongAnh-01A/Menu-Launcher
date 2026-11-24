@@ -4,3 +4,5 @@ pub mod launcher;
 pub mod scanner;
 pub mod browsers;
 pub mod logger;
+pub mod workspaces;
+pub mod tray;

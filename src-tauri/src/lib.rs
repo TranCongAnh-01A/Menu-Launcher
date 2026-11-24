@@ -4,11 +4,11 @@ pub mod ipc_commands;
 use ipc_commands::item_commands::*;
 use ipc_commands::group_commands::*;
 use ipc_commands::settings_commands::*;
+use ipc_commands::workspace_commands::*;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use tauri::{
-    menu::{MenuBuilder, MenuItemBuilder},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     Emitter, Manager, WindowEvent,
 };
@@ -173,11 +173,14 @@ pub fn run() {
             // sách nhóm chặn...). Gói trong closure để lỗi không làm chết setup —
             // ứng dụng vẫn chạy được, chỉ là không có khay.
             let tray_result = (|| -> tauri::Result<()> {
-                let show_i = MenuItemBuilder::with_id("show", "Mở Launcher").build(app)?;
-                let quit_i = MenuItemBuilder::with_id("quit", "Thoát").build(app)?;
-                let menu = MenuBuilder::new(app).items(&[&show_i, &quit_i]).build()?;
+                // Menu dựng từ dữ liệu hiện tại; sau đó task nền dựng lại mỗi khi dữ liệu đổi.
+                let model = {
+                    let data = tauri::async_runtime::block_on(state.data.read());
+                    core::tray::build_tray_model(&data)
+                };
+                let menu = core::tray::build_menu(app.handle(), &model)?;
 
-                let mut tray_builder = TrayIconBuilder::new()
+                let mut tray_builder = TrayIconBuilder::with_id(core::tray::TRAY_ID)
                     .menu(&menu)
                     .show_menu_on_left_click(false)
                     .on_menu_event(|app, event| match event.id.as_ref() {
@@ -192,7 +195,29 @@ pub fn run() {
                         "quit" => {
                             app.exit(0);
                         }
-                        _ => {}
+                        other => {
+                            // `item:<id>` mở mục, `ws:<id>` chạy workspace (có record_launch).
+                            if let Some(state) = app.try_state::<std::sync::Arc<core::data_service::AppState>>() {
+                                let state = state.inner().clone();
+                                let app = app.clone();
+                                let other = other.to_string();
+                                tauri::async_runtime::spawn(async move {
+                                    if let Some(id) = other.strip_prefix("item:") {
+                                        if let Err(e) = ipc_commands::item_commands::open_item_core(&state, id).await {
+                                            state.logger.warn(&format!("Mở từ khay thất bại: {}", e));
+                                        }
+                                    } else if let Some(id) = other.strip_prefix("ws:") {
+                                        if let Err(e) = ipc_commands::workspace_commands::launch_workspace_core(&state, id).await {
+                                            state.logger.warn(&format!("Chạy workspace từ khay thất bại: {}", e));
+                                        }
+                                    } else {
+                                        return;
+                                    }
+                                    // Cho giao diện (nếu đang mở) cập nhật số lần mở.
+                                    let _ = app.emit("app-items-changed", ());
+                                });
+                            }
+                        }
                     })
                     .on_tray_icon_event(|tray, event| {
                         if let TrayIconEvent::Click {
@@ -229,7 +254,11 @@ pub fn run() {
             })();
 
             match tray_result {
-                Ok(()) => TRAY_AVAILABLE.store(true, Ordering::Relaxed),
+                Ok(()) => {
+                    TRAY_AVAILABLE.store(true, Ordering::Relaxed);
+                    // Dựng lại menu khay (gộp ~300 ms) sau mỗi lần dữ liệu được lưu.
+                    core::tray::spawn_tray_rebuild_task(app.handle().clone(), state.clone());
+                }
                 Err(e) => state.logger.error(&format!(
                     "Không tạo được biểu tượng khay hệ thống: {}. \
                      Đóng cửa sổ sẽ thoát hẳn ứng dụng.",
@@ -296,7 +325,13 @@ pub fn run() {
             add_custom_item,
             update_item_details,
             detect_browsers,
-            scan_shortcuts
+            scan_shortcuts,
+            get_workspaces,
+            add_workspace,
+            update_workspace,
+            delete_workspace,
+            reorder_workspaces,
+            launch_workspace
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

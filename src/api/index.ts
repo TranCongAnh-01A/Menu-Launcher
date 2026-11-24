@@ -435,3 +435,72 @@ export async function scanShortcuts(): Promise<ScanCandidate[]> {
     throw e;
   }
 }
+
+// === WORKSPACES ===
+export async function getWorkspaces(): Promise<Workspace[]> {
+  try {
+    return await invoke<Workspace[]>('get_workspaces');
+  } catch (e) {
+    console.error('Error in getWorkspaces:', e);
+    if (window.__TAURI_INTERNALS__ === undefined) return [];
+    throw e;
+  }
+}
+
+export async function addWorkspace(ten: string): Promise<Workspace> {
+  try {
+    return await invoke<Workspace>('add_workspace', { ten });
+  } catch (e) {
+    console.error('Error in addWorkspace:', e);
+    if (window.__TAURI_INTERNALS__ === undefined) {
+      return { id: `ws-${Date.now()}`, ten, thu_tu: 0, muc_ids: [], do_tre_ms: 500 };
+    }
+    throw e;
+  }
+}
+
+export async function updateWorkspace(
+  id: string,
+  ten: string,
+  mucIds: string[],
+  doTreMs: number
+): Promise<void> {
+  try {
+    await invoke('update_workspace', { id, ten, mucIds, doTreMs });
+  } catch (e) {
+    console.error('Error in updateWorkspace:', e);
+    if (window.__TAURI_INTERNALS__ === undefined) return;
+    throw e;
+  }
+}
+
+export async function deleteWorkspace(id: string): Promise<void> {
+  try {
+    await invoke('delete_workspace', { id });
+  } catch (e) {
+    console.error('Error in deleteWorkspace:', e);
+    if (window.__TAURI_INTERNALS__ === undefined) return;
+    throw e;
+  }
+}
+
+export async function reorderWorkspaces(ids: string[]): Promise<void> {
+  try {
+    await invoke('reorder_workspaces', { ids });
+  } catch (e) {
+    console.error('Error in reorderWorkspaces:', e);
+    if (window.__TAURI_INTERNALS__ === undefined) return;
+    throw e;
+  }
+}
+
+/** Mở tuần tự các mục của workspace (có độ trễ giữa các app). */
+export async function launchWorkspace(id: string): Promise<LaunchResult> {
+  try {
+    return await invoke<LaunchResult>('launch_workspace', { id });
+  } catch (e) {
+    console.error('Error in launchWorkspace:', e);
+    if (window.__TAURI_INTERNALS__ === undefined) return { da_mo: 0, that_bai: [] };
+    throw e;
+  }
+}

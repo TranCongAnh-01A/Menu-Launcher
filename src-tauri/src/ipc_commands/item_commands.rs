@@ -368,12 +368,18 @@ fn is_script(path_lower: &str) -> bool {
 
 #[tauri::command]
 pub async fn open_item(id: String, state: State<'_, Arc<AppState>>) -> Result<(), String> {
-    let item = find_item(&state, &id).await?;
+    open_item_core(&state, &id).await
+}
+
+/// Mở một mục theo id (dùng chung cho lệnh `open_item` và menu khay).
+pub async fn open_item_core(state: &Arc<AppState>, id: &str) -> Result<(), String> {
+    let id = id.to_string();
+    let item = find_item(state, &id).await?;
     let (ten, path) = (item.ten.clone(), item.duong_dan.clone());
 
     if !path_is_valid_async(&path).await {
         // Đồng bộ lại trạng thái để giao diện đánh dấu mục này là không còn hợp lệ.
-        update_item_existence(&state, &id, false).await;
+        update_item_existence(state, &id, false).await;
         state
             .logger
             .warn(&format!("Không tìm thấy tệp khi mở [{}] - {}", ten, path));
@@ -402,8 +408,8 @@ pub async fn open_item(id: String, state: State<'_, Arc<AppState>>) -> Result<()
     }
 
     // Mục từng bị đánh dấu hỏng nhưng nay mở được → khôi phục trạng thái.
-    update_item_existence(&state, &id, true).await;
-    record_launch(&state, std::slice::from_ref(&id)).await;
+    update_item_existence(state, &id, true).await;
+    record_launch(state, std::slice::from_ref(&id)).await;
     Ok(())
 }
 
@@ -445,16 +451,11 @@ pub struct LaunchResult {
     pub that_bai: Vec<String>,
 }
 
-/// Khởi chạy đúng danh sách mục do giao diện gửi lên.
-///
-/// Nhận `ids` thay vì `group_id` để số lượng thực thi luôn khớp với số đang hiển
-/// thị — trước đây backend chạy toàn bộ nhóm, bỏ qua bộ lọc tìm kiếm của người dùng.
-#[tauri::command]
-pub async fn launch_items(
-    ids: Vec<String>,
-    state: State<'_, Arc<AppState>>,
-) -> Result<LaunchResult, String> {
-    // Giữ đúng thứ tự do frontend gửi lên.
+/// Mở tuần tự các mục theo đúng thứ tự `ids`, chờ `delay_ms` giữa hai mục.
+/// Bỏ qua id không còn tồn tại; ghi nhận lượt mở cho các mục mở được.
+/// Dùng chung cho `launch_items` (150 ms), workspace (độ trễ tuỳ chỉnh) và khay.
+pub async fn launch_ordered(state: &Arc<AppState>, ids: &[String], delay_ms: u64) -> LaunchResult {
+    // Giữ đúng thứ tự do người gọi gửi lên.
     let targets: Vec<Item> = {
         let data = state.data.read().await;
         ids.iter()
@@ -471,12 +472,12 @@ pub async fn launch_items(
     let mut launched_ids: Vec<String> = Vec::new();
     for (index, item) in targets.iter().enumerate() {
         let (id, ten, path) = (&item.id, &item.ten, &item.duong_dan);
-        if index > 0 {
-            tokio::time::sleep(tokio::time::Duration::from_millis(150)).await;
+        if index > 0 && delay_ms > 0 {
+            tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;
         }
 
         if !path_is_valid_async(path).await {
-            update_item_existence(&state, id, false).await;
+            update_item_existence(state, id, false).await;
             result.that_bai.push(ten.clone());
             continue;
         }
@@ -489,7 +490,7 @@ pub async fn launch_items(
         }
     }
 
-    record_launch(&state, &launched_ids).await;
+    record_launch(state, &launched_ids).await;
 
     state.logger.info(&format!(
         "Khởi chạy đồng loạt: {} thành công, {} thất bại",
@@ -497,7 +498,19 @@ pub async fn launch_items(
         result.that_bai.len()
     ));
 
-    Ok(result)
+    result
+}
+
+/// Khởi chạy đúng danh sách mục do giao diện gửi lên.
+///
+/// Nhận `ids` thay vì `group_id` để số lượng thực thi luôn khớp với số đang hiển
+/// thị — trước đây backend chạy toàn bộ nhóm, bỏ qua bộ lọc tìm kiếm của người dùng.
+#[tauri::command]
+pub async fn launch_items(
+    ids: Vec<String>,
+    state: State<'_, Arc<AppState>>,
+) -> Result<LaunchResult, String> {
+    Ok(launch_ordered(&state, &ids, 150).await)
 }
 
 /// Xóa một mục và trả về vị trí cũ của nó, để thao tác Hoàn tác khôi phục đúng chỗ.
@@ -511,6 +524,8 @@ pub async fn delete_item(id: String, state: State<'_, Arc<AppState>>) -> Result<
         .position(|i| i.id == id)
         .ok_or_else(|| "Không tìm thấy ứng dụng".to_string())?;
     let removed = data.muc.remove(index);
+    // Gỡ id khỏi mọi workspace (Hoàn tác không khôi phục lại vào workspace).
+    crate::core::workspaces::remove_item_from_workspaces(&mut data, &id);
 
     // Không xoá file icon ở đây: Hoàn tác cần icon tuỳ chỉnh. Icon mồ côi được
     // dọn một lần lúc khởi động (cleanup_orphan_icons).
