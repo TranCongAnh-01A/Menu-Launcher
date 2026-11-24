@@ -13,6 +13,7 @@ import {
   persistShortcut,
   DEFAULT_SHORTCUT_KEYS,
 } from '../utils/shortcut';
+import { checkForUpdate, installUpdate } from '../utils/updater';
 import { FOCUS_SEARCH_EVENT, hasOpenOverlay } from '../utils/overlay';
 
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
@@ -28,7 +29,31 @@ export function MainWindow() {
   const [isShortcutModalOpen, setIsShortcutModalOpen] = useState(
     () => localStorage.getItem('app_has_configured_shortcut') === null
   );
-  const { showToast, confirm } = useNotification();
+  const { showToast, showActionToast, confirm } = useNotification();
+
+  // Kiểm tra cập nhật im lặng sau 10 giây: mọi lỗi (mất mạng, chưa có release,
+  // pubkey chưa cấu hình) chỉ ghi log, không làm phiền người dùng.
+  useEffect(() => {
+    const timer = setTimeout(async () => {
+      try {
+        const update = await checkForUpdate();
+        if (!update) return;
+        showActionToast(`Có phiên bản mới ${update.version}`, 'Cập nhật', async () => {
+          try {
+            showToast('Đang tải bản cập nhật...', 'info');
+            await installUpdate(update);
+          } catch (e) {
+            console.error('Lỗi cài đặt cập nhật:', e);
+            showToast(`Không cập nhật được: ${e}`, 'error');
+          }
+        }, 30000);
+      } catch (e) {
+        console.warn('Bỏ qua kiểm tra cập nhật:', e);
+      }
+    }, 10000);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Khôi phục trạng thái Ghim trên cùng (Always on Top) & Phím tắt toàn cầu khi khởi động
   useEffect(() => {

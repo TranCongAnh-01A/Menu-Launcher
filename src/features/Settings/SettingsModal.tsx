@@ -13,6 +13,8 @@ import {
   SHORTCUT_HINT,
 } from '../../utils/shortcut';
 import { enable, disable, isEnabled } from '@tauri-apps/plugin-autostart';
+import { getVersion } from '@tauri-apps/api/app';
+import { checkForUpdate, installUpdate } from '../../utils/updater';
 import { Image as ImageIcon } from '@phosphor-icons/react';
 import { BackgroundSettings } from './BackgroundSettings';
 import { DarkColorSettings } from '../Settings/DarkColorSettings';
@@ -37,6 +39,30 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const [autostart, setAutostart] = useState(false);
   const [alwaysOnTop, setAlwaysOnTopState] = useState(() => localStorage.getItem('app_always_on_top') === 'true');
   const [isRescanning, setIsRescanning] = useState(false);
+  const [appVersion, setAppVersion] = useState('');
+  const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
+
+  useEffect(() => {
+    getVersion().then(setAppVersion).catch(() => setAppVersion(''));
+  }, []);
+
+  const handleCheckUpdate = async () => {
+    setIsCheckingUpdate(true);
+    try {
+      const update = await checkForUpdate();
+      if (!update) {
+        showToast('Bạn đang dùng phiên bản mới nhất', 'success');
+        return;
+      }
+      showToast(`Có phiên bản mới ${update.version}, đang tải...`, 'info');
+      await installUpdate(update);
+    } catch (e) {
+      console.error('Lỗi kiểm tra cập nhật:', e);
+      showToast(`Không kiểm tra được cập nhật: ${e}`, 'error');
+    } finally {
+      setIsCheckingUpdate(false);
+    }
+  };
   const [activeTab, setActiveTab] = useState('general');
   const { showToast } = useNotification();
   const { theme, setTheme } = useTheme();
@@ -670,7 +696,14 @@ const startDrag = (e: React.PointerEvent) => {
                 <Palette size={32} weight="regular" />
               </div>
               <h3 className="font-serif text-xl font-bold tracking-tight">Workspace Launcher</h3>
-              <p className="mt-1 text-sm text-muted-foreground">Version 1.0.0 (Warm Editorial)</p>
+              <p className="mt-1 text-sm text-muted-foreground">Phiên bản {appVersion || '...'}</p>
+              <button
+                onClick={handleCheckUpdate}
+                disabled={isCheckingUpdate}
+                className="btn-ghost mt-4 text-xs px-4 py-2 border border-border hover:border-primary"
+              >
+                {isCheckingUpdate ? 'Đang kiểm tra...' : 'Kiểm tra cập nhật'}
+              </button>
               <p className="mt-4 max-w-xs text-xs text-muted-foreground/60">
                 Được thiết kế lại theo phong cách tối giản cổ điển (Warm Editorial). Tối ưu hóa hiệu suất và trải nghiệm người dùng thư thái.
               </p>
